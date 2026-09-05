@@ -44,6 +44,7 @@ def collect(
     dry_run: bool = typer.Option(False, help="Bazaga yozmaydi"),
 ):
     """FB guruhidan post va comment yig'adi."""
+    from . import runs
     from .collect.browser import SessionDead, browser
     from .collect.feed import sweep_feed
     from .collect.post import fetch_comments, pending_posts
@@ -56,26 +57,31 @@ def collect(
     since_ts = time.time() - days * 86400
 
     try:
-        with browser(headless=cfg["collect"]["headless"]) as ctx:
-            for g in groups:
-                typer.echo(f"→ {g['name']} ({days} kun)")
-                res = sweep_feed(ctx, g["id"], cfg, since_ts, dry_run=dry_run)
-                typer.echo(f"  feed: {res}")
+        with runs.track("manual") as r, r.step("collect") as st:
+            out = {}
+            with browser(headless=cfg["collect"]["headless"]) as ctx:
+                for g in groups:
+                    typer.echo(f"→ {g['name']} ({days} kun)")
+                    res = sweep_feed(ctx, g["id"], cfg, since_ts, dry_run=dry_run)
+                    out[g["id"]] = res
+                    typer.echo(f"  feed: {res}")
 
-            if comments and not dry_run:
-                todo = pending_posts(cfg["collect"]["max_posts_per_run"])
-                typer.echo(f"→ {len(todo)} ta postdan comment yig'ilyapti")
-                total = 0
-                for i, p in enumerate(todo, 1):
-                    try:
-                        n = fetch_comments(ctx, p, cfg)
-                        total += n
-                        typer.echo(f"  [{i}/{len(todo)}] {p['post_id']}: +{n} comment")
-                    except SessionDead:
-                        raise
-                    except Exception as e:
-                        typer.echo(f"  [{i}/{len(todo)}] {p['post_id']}: xato {e}")
-                typer.echo(f"  jami: +{total} comment")
+                if comments and not dry_run:
+                    todo = pending_posts(cfg["collect"]["max_posts_per_run"])
+                    typer.echo(f"→ {len(todo)} ta postdan comment yig'ilyapti")
+                    total = 0
+                    for i, p in enumerate(todo, 1):
+                        try:
+                            n = fetch_comments(ctx, p, cfg)
+                            total += n
+                            typer.echo(f"  [{i}/{len(todo)}] {p['post_id']}: +{n} comment")
+                        except SessionDead:
+                            raise
+                        except Exception as e:
+                            typer.echo(f"  [{i}/{len(todo)}] {p['post_id']}: xato {e}")
+                    out["comments"] = total
+                    typer.echo(f"  jami: +{total} comment")
+            st["result"] = out
     except SessionDead as e:
         with db.connect() as conn:
             db.set_health(conn, "session", f"DEAD: {e}")
@@ -89,46 +95,61 @@ def collect(
 @app.command()
 def classify(limit: int = 200):
     """Yig'ilgan matnlarni BUY/SELL/NOISE ga ajratadi va faktlarni chiqaradi."""
+    from . import runs
     from .classify.run import run
 
     db.init()
-    typer.echo(run(limit=limit))
+    with runs.track("manual") as r, r.step("classify") as st:
+        st["result"] = run(limit=limit)
+    typer.echo(st["result"])
 
 
 @app.command()
 def enrich(limit: int = 200):
     """MC/DOT raqamlarini FMCSA bo'yicha tekshiradi."""
+    from . import runs
     from .enrich.fmcsa import enrich_pending
 
     db.init()
-    typer.echo(enrich_pending(limit=limit))
+    with runs.track("manual") as r, r.step("enrich") as st:
+        st["result"] = enrich_pending(limit=limit)
+    typer.echo(st["result"])
 
 
 @app.command()
 def score():
     """Ballarni qayta hisoblaydi."""
+    from . import runs
     from . import score as scoring
 
     db.init()
-    typer.echo(scoring.run())
+    with runs.track("manual") as r, r.step("score") as st:
+        st["result"] = scoring.run()
+    typer.echo(st["result"])
 
 
 @app.command()
 def match():
     """Buyer<->Seller juftliklarini topadi."""
     from . import match as matching
+    from . import runs
 
     db.init()
-    typer.echo(matching.run())
+    with runs.track("manual") as r, r.step("match") as st:
+        st["result"] = matching.run()
+    typer.echo(st["result"])
 
 
 @app.command()
 def notify(dry_run: bool = False):
     """Yuqori ballli yangi leadlarni Telegram'ga yuboradi."""
+    from . import runs
     from .notify import telegram
 
     db.init()
-    typer.echo(telegram.run(dry_run=dry_run))
+    with runs.track("manual") as r, r.step("notify") as st:
+        st["result"] = telegram.run(dry_run=dry_run)
+    typer.echo(st["result"])
 
 
 @app.command()
@@ -136,9 +157,11 @@ def reprocess():
     """Klassifikatsiyani noldan qayta yurgizadi (qayta scrape qilmasdan)."""
     db.init()
     with db.connect() as conn:
-        conn.execute("DELETE FROM leads")
+        # Tartib muhim: matches va notified leads ga bog'langan
         conn.execute("DELETE FROM matches")
-        conn.execute("UPDATE classify_state SET stage = 'pending', side_guess = NULL")
+        conn.execute("DELETE FROM notified")
+        conn.execute("DELETE FROM leads")
+        conn.execute("UPDATE classify_state SET stage = 'pending', side_guess = NULL, error = NULL")
     typer.echo("Navbat tozalandi — endi `mc classify` ni yurgizing.")
 
 
@@ -220,25 +243,74 @@ def loop(interval: int = None):
 
     signal.signal(signal.SIGTERM, _term)
 
+    from . import runs
+
     with _pidfile("loop"):
         try:
             while True:
                 started = time.time()
-                try:
+                with runs.track("loop") as r:
                     for name, fn in _pipeline():
                         typer.echo(f"[{time.strftime('%H:%M:%S')}] {name} …")
-                        typer.echo(f"  {fn()}")
-                except SessionDead as e:
-                    typer.echo(f"To'xtatildi: {e}")
-                    raise typer.Exit(code=2)
-                except Exception as e:
-                    typer.echo(f"  xato: {e}")
+                        try:
+                            with r.step(name) as s:
+                                s["result"] = fn()
+                            typer.echo(f"  ✓ {s['result']}")
+                        except SessionDead as e:
+                            typer.echo(f"  ✗ {e}")
+                            with db.connect() as conn:
+                                db.set_health(conn, "session", f"DEAD: {e}")
+                            telegram_alert(str(e))
+                            raise typer.Exit(code=2)
+                        except Exception as e:
+                            # Bitta bosqich tushsa qolganini to'xtatmaymiz
+                            typer.echo(f"  ✗ xato: {type(e).__name__}: {e}")
+
                 sleep = max(60, every - (time.time() - started))
                 typer.echo(f"[{time.strftime('%H:%M:%S')}] {int(sleep)}s kutish\n")
                 time.sleep(sleep)
         except KeyboardInterrupt:
             typer.echo("\nTo'xtatildi. Yig'ilgan hamma narsa saqlandi — "
                        "`uv run mc loop` bilan qoldigidan davom etadi.")
+
+
+def telegram_alert(msg: str) -> None:
+    try:
+        from .notify import telegram
+
+        telegram.alert(f"FB sessiya tushdi:\n{msg}\n\n<code>uv run mc login</code>")
+    except Exception:
+        pass
+
+
+@app.command("runs")
+def runs_(limit: int = 10):
+    """Oxirgi yurishlar va ularning natijasi."""
+    from . import runs as R
+
+    db.init()
+    st = R.status()
+    typer.echo(f"Holat: {st['label']}"
+               + (f" — {st['detail']}" if st.get("detail") else ""))
+    if st.get("age") is not None:
+        typer.echo(f"Oxirgi muvaffaqiyatli yangilanish: {int(st['age'] // 60)} daqiqa oldin\n")
+    else:
+        typer.echo("")
+
+    for r in R.latest(limit):
+        when = time.strftime("%m-%d %H:%M", time.localtime(r["started_at"]))
+        dur = f"{r['duration']:.0f}s" if r["duration"] else "—"
+        mark = {"ok": "✓", "partial": "◐", "failed": "✗",
+                "running": "…", "stopped": "■"}.get(r["status"], "?")
+        typer.echo(f"{mark} {when}  {r['status']:<8} {dur:>6}  {r['trigger']}")
+        for s in r["steps"]:
+            sm = {"ok": "✓", "warn": "!", "error": "✗", "running": "…"}.get(s["status"], "?")
+            line = f"    {sm} {s['step']:<9}"
+            if s["status"] in ("error", "warn"):
+                line += f" {s['error']}"
+            elif s["result"] and s["result"] != "null":
+                line += f" {s['result'][:110]}"
+            typer.echo(line)
 
 
 @app.command()

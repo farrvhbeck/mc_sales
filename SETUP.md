@@ -180,7 +180,27 @@ inglizcha xabar bilan. "nusxa" bosib Facebook'da o'zingiz yuborasiz.
 **Odam sahifasi** (ismga bosing) — o'sha odamning butun tarixi. Doim sotayotgan
 qayta sotuvchini va doim qidirayotgan xaridorni shu yerda ko'rasiz.
 
-**Holat** — tizim sog'ligi. Ish ketmayotgandek tuyulsa birinchi shu yerga qarang.
+**Yuqoridagi rangli chiziq** har sahifada turadi va oxirgi yangilanish qachon
+bo'lganini aytadi:
+
+| Rang | Ma'nosi | Nima qilish |
+|---|---|---|
+| Yashil "Ishlayapti" | Hammasi joyida | — |
+| Ko'k "Hozir ishlayapti" | Ayni damda yig'yapti | Kuting |
+| Sariq "Qisman bajarildi" | Bir bosqich tushdi, qolgani ishladi | Holat sahifasidan sababni ko'ring |
+| Sariq "Yangilanmayapti" | 30 daqiqadan beri yangilik yo'q | `mc loop` to'xtagan — qayta ishga tushiring |
+| Qizil "Muvaffaqiyatsiz" | Oxirgi yurish tushdi | Holat sahifasida xato matni bor |
+| Qizil "Facebook sessiya tushdi" | Akkaunt bloklandi | `uv run mc login` |
+
+**Holat** sahifasida har bir yurishning 6 bosqichi alohida ko'rinadi — qaysi biri
+ishladi, qaysi biri tushdi va nima natija berdi. Ish ketmayotgandek tuyulsa
+birinchi shu yerga qarang.
+
+Terminaldan ham ko'rish mumkin:
+
+```bash
+uv run mc runs
+```
 
 ---
 

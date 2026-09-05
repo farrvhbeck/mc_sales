@@ -44,6 +44,7 @@ uv run mc serve       # dashboard -> http://127.0.0.1:8000
 uv run mc loop        # hammasi, har 10 daqiqada
 uv run mc stop        # ishlayotgan loop/serve ni to'xtatadi (yoki Ctrl+C)
 uv run mc stats       # qisqacha holat
+uv run mc runs        # oxirgi yangilanishlar va ular muvaffaqiyatli bo'lganmi
 uv run mc reprocess   # klassifikatsiyani noldan (qayta scrape qilmasdan)
 ```
 
@@ -95,7 +96,7 @@ qilasiz.
 | `/sellers`, `/buyers` | Asosiy ish stoli — status tablari, filtr, saralash. `✓ Bog'landim` / `✕` tugmalari. Tashlanganlar **Tashlangan** tabidan `↺ Qaytarish` bilan tiklanadi — hech narsa o'chmaydi |
 | `/matches` | Juftliklar, sabab, tayyor intro matni |
 | `/people/{id}` | Odam tarixi — serial reseller va doimiy xaridorni shu yerda ko'rasiz |
-| `/health` | Collector oxirgi yurishi, FB sessiya, Groq sarfi, xatolar |
+| `/health` | **Yangilanishlar tarixi** — har yurish, har bosqich, xato matni bilan. Groq sarfi, FB sessiya |
 
 ## Hozirgi holat
 

@@ -147,6 +147,30 @@ CREATE TABLE IF NOT EXISTS health (
     value      TEXT,
     updated_at REAL
 );
+
+-- Har bir yurish va uning bosqichlari: "qachon yangilandi, muvaffaqiyatlimi?"
+CREATE TABLE IF NOT EXISTS runs (
+    run_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    trigger     TEXT,      -- 'loop' | 'manual'
+    started_at  REAL,
+    finished_at REAL,
+    status      TEXT,      -- running | ok | partial | failed | stopped
+    summary     TEXT,
+    last_error  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_runs_started ON runs(started_at DESC);
+
+CREATE TABLE IF NOT EXISTS run_steps (
+    step_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id      INTEGER REFERENCES runs(run_id),
+    step        TEXT,
+    started_at  REAL,
+    finished_at REAL,
+    status      TEXT,      -- running | ok | error
+    result      TEXT,
+    error       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_run_steps_run ON run_steps(run_id);
 """
 
 

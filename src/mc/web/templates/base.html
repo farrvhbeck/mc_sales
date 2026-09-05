@@ -27,6 +27,31 @@
   </div>
 </nav>
 
+{% set rs = run_status() %}
+{% set tone = {
+     'ok':      ('bg-emerald-50 border-emerald-200 text-emerald-900', '●', 'text-emerald-600'),
+     'running': ('bg-blue-50 border-blue-200 text-blue-900',          '◍', 'text-blue-600'),
+     'partial': ('bg-amber-50 border-amber-200 text-amber-900',       '◐', 'text-amber-600'),
+     'stale':   ('bg-amber-50 border-amber-200 text-amber-900',       '▲', 'text-amber-600'),
+     'stopped': ('bg-slate-100 border-slate-300 text-slate-700',      '■', 'text-slate-500'),
+     'failed':  ('bg-red-50 border-red-200 text-red-900',             '✕', 'text-red-600'),
+     'dead':    ('bg-red-50 border-red-200 text-red-900',             '✕', 'text-red-600'),
+     'never':   ('bg-slate-100 border-slate-300 text-slate-700',      '○', 'text-slate-400'),
+   }[rs.state] %}
+<div class="max-w-[1600px] mx-auto px-4 pt-3">
+  <a href="/health" class="flex flex-wrap items-center gap-x-3 gap-y-1 border rounded-lg px-3 py-2 {{ tone[0] }} hover:brightness-[0.98]">
+    <span class="{{ tone[2] }} text-[15px] leading-none">{{ tone[1] }}</span>
+    <span class="font-semibold">{{ rs.label }}</span>
+    {% if rs.age is defined and rs.age is not none %}
+      <span class="opacity-75">oxirgi yangilanish
+        {% if rs.age < 90 %}hozirgina{% elif rs.age < 5400 %}{{ (rs.age // 60)|int }} daqiqa oldin{%
+        else %}{{ (rs.age // 3600)|int }} soat oldin{% endif %}</span>
+    {% endif %}
+    {% if rs.detail %}<span class="opacity-75 truncate">— {{ rs.detail }}</span>{% endif %}
+    <span class="ml-auto opacity-50 text-[12px]">tafsilot →</span>
+  </a>
+</div>
+
 <main class="max-w-[1600px] mx-auto p-4">
   {% block content %}{% endblock %}
 </main>

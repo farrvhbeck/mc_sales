@@ -10,7 +10,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from .. import db
+from .. import db, runs
 from ..enrich import fmcsa
 
 BASE = Path(__file__).parent
@@ -48,6 +48,13 @@ def _ago(ts: float | None) -> str:
 tpl.env.filters["ago"] = _ago
 tpl.env.filters["money"] = lambda v: f"${v:,}" if v else "—"
 tpl.env.filters["isnew"] = lambda ts: bool(ts) and (time.time() - ts) < 7200
+tpl.env.filters["dur"] = lambda s: (f"{s:.0f}s" if s and s < 90 else
+                                    (f"{s/60:.0f}d" if s else "—"))
+# Sarlavhadagi holat chizig'i har sahifada ko'rinadi
+tpl.env.filters["localtime"] = lambda ts: (
+    time.strftime("%m-%d %H:%M", time.localtime(ts)) if ts else "—")
+tpl.env.globals["run_status"] = runs.status
+tpl.env.globals["STEP_LABELS"] = runs.STEP_LABELS
 
 
 def _rows(side: str, args: dict) -> list[dict]:
@@ -204,7 +211,7 @@ def health(request: Request):
             "SELECT source_id, error FROM classify_state WHERE stage='error' LIMIT 20"
         )]
     return tpl.TemplateResponse(request, "health.html", {
-        "h": h, "usage": usage, "stages": stages,
+        "h": h, "usage": usage, "stages": stages, "runs": runs.latest(25),
         "counts": counts, "errors": errors, "page": "health",
     })
 

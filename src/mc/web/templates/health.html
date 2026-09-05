@@ -1,5 +1,59 @@
 {% extends "base.html" %}
 {% block content %}
+
+<div class="bg-white border border-slate-200 rounded-lg p-3 mb-4">
+  <h2 class="font-semibold mb-2">Yangilanishlar tarixi</h2>
+  <p class="text-slate-500 mb-3">
+    Har bir yurish 6 bosqichdan iborat. Bosqich tushsa qolgani davom etadi —
+    shuning uchun <b>qisman</b> holat ham bo'lishi mumkin.
+  </p>
+
+  <table class="w-full">
+    <tr class="text-slate-400 text-[10px] uppercase tracking-wider border-b">
+      <td class="pb-1">Qachon</td><td>Holat</td><td>Davomiyligi</td>
+      <td>Bosqichlar</td><td>Natija</td>
+    </tr>
+    {% for r in runs %}
+    {% set st = {'ok': ('✓','text-emerald-600'), 'partial': ('◐','text-amber-600'),
+                 'failed': ('✕','text-red-600'), 'running': ('◍','text-blue-600'),
+                 'stopped': ('■','text-slate-400')}.get(r.status, ('?','text-slate-400')) %}
+    <tr class="border-b border-slate-100 align-top">
+      <td class="py-1.5 pr-3 whitespace-nowrap tabular-nums text-slate-600">
+        {{ r.started_at|localtime }}</td>
+      <td class="py-1.5 pr-3 whitespace-nowrap">
+        <span class="{{ st[1] }} font-bold">{{ st[0] }}</span> {{ r.status }}</td>
+      <td class="py-1.5 pr-3 whitespace-nowrap tabular-nums text-slate-500">{{ r.duration|dur }}</td>
+      <td class="py-1.5 pr-3">
+        <div class="flex flex-wrap gap-1">
+        {% for s in r.steps %}
+          {% set c = {'ok': 'bg-emerald-100 text-emerald-800 border-emerald-200',
+                      'warn': 'bg-amber-100 text-amber-800 border-amber-200',
+                      'error': 'bg-red-100 text-red-800 border-red-200',
+                      'running': 'bg-blue-100 text-blue-800 border-blue-200'}.get(s.status, 'bg-slate-100 border-slate-200') %}
+          <span class="{{ c }} border rounded px-1.5 py-0.5 text-[11px] whitespace-nowrap"
+                title="{{ s.error or s.result or '' }}">
+            {{ STEP_LABELS.get(s.step, s.step) }}
+            {{ {'ok':'✓','warn':'!','error':'✕'}.get(s.status, '…') }}</span>
+        {% endfor %}
+        </div>
+      </td>
+      <td class="py-1.5 text-slate-600">
+        {% if r.last_error %}<span class="text-red-700">{{ r.last_error[:160] }}</span>
+        {% else %}
+          {% for s in r.steps if s.result and s.result != 'null' %}
+            <div class="text-[12px]"><span class="text-slate-400">{{ s.step }}:</span> {{ s.result[:100] }}</div>
+          {% endfor %}
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="py-6 text-center text-slate-500">
+      Hali hech qanday yurish bo'lmagan. <code class="bg-slate-100 px-1.5 rounded">uv run mc loop</code>
+    </td></tr>
+    {% endfor %}
+  </table>
+</div>
+
 <div class="grid md:grid-cols-2 gap-4">
 
   <div class="bg-white border rounded p-3">
