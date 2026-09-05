@@ -122,6 +122,22 @@ Laptopni yopsangiz to'xtaydi, ochsangiz `mc loop` ni qayta ishga tushirasiz.
 Yo'qolgan vaqt uchun xavotir kerak emas — u oxirgi 7 kunlik postlarni ko'radi,
 allaqachon ko'rilganini takrorlamaydi.
 
+### To'xtatish
+
+Terminal ochiq bo'lsa — **Ctrl+C**. Ikkalasi ham tinch to'xtaydi, ma'lumot yo'qolmaydi.
+
+Terminal ko'rinmayotgan bo'lsa (tmux'da yoki fonda) — **boshqa terminaldan**:
+
+```bash
+uv run mc stop
+```
+
+Bu `mc loop` va `mc serve` ikkalasini ham to'xtatadi. Brauzer ham to'g'ri yopiladi.
+
+To'xtatish xavfsiz — yig'ilgan post, lead, status va eslatmalar bazada qoladi.
+`uv run mc loop` bilan qayta boshlaganda qoldigidan davom etadi, boshidan
+qidirmaydi.
+
 ### Fonda ishlatish (terminal yopilsa ham davom etsin)
 
 ```bash
@@ -129,7 +145,9 @@ allaqachon ko'rilganini takrorlamaydi.
 sudo apt install tmux
 tmux new -s mc
 uv run mc loop
-# Ctrl+B keyin D bosib chiqing. Qaytish: tmux attach -t mc
+# Ctrl+B keyin D bosib chiqing.
+# Qaytish:     tmux attach -t mc
+# To'xtatish:  uv run mc stop
 ```
 
 ---

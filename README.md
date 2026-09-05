@@ -42,6 +42,7 @@ uv run mc match       # buyer ↔ seller
 uv run mc notify      # Telegram (--dry-run bilan sinash mumkin)
 uv run mc serve       # dashboard -> http://127.0.0.1:8000
 uv run mc loop        # hammasi, har 10 daqiqada
+uv run mc stop        # ishlayotgan loop/serve ni to'xtatadi (yoki Ctrl+C)
 uv run mc stats       # qisqacha holat
 uv run mc reprocess   # klassifikatsiyani noldan (qayta scrape qilmasdan)
 ```

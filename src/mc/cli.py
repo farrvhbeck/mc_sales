@@ -164,38 +164,127 @@ def stats():
             typer.echo(f"  bugungi token {r['model']}: {r['t']}")
 
 
+def _pidfile(name: str):
+    """Ishlayotgan jarayonning PID'ini yozadi, tugaganda o'chiradi."""
+    import contextlib
+    import os
+
+    @contextlib.contextmanager
+    def _cm():
+        path = db.DATA / f"{name}.pid"
+        db.DATA.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(os.getpid()))
+        try:
+            yield
+        finally:
+            with contextlib.suppress(OSError):
+                path.unlink()
+
+    return _cm()
+
+
 @app.command()
 def serve(host: str = "127.0.0.1", port: int = 8000):
-    """Dashboard'ni ishga tushiradi."""
+    """Dashboard'ni ishga tushiradi. To'xtatish: Ctrl+C yoki `mc stop`."""
     import uvicorn
 
     db.init()
-    uvicorn.run("mc.web.app:app", host=host, port=port, log_level="info")
+    with _pidfile("web"):
+        try:
+            uvicorn.run("mc.web.app:app", host=host, port=port, log_level="info")
+        except KeyboardInterrupt:
+            pass
+    typer.echo("\nDashboard to'xtadi.")
 
 
 @app.command()
 def loop(interval: int = None):
-    """Doimiy rejim: collect -> classify -> enrich -> score -> match -> notify."""
+    """Doimiy rejim: collect -> classify -> enrich -> score -> match -> notify.
+
+    To'xtatish: Ctrl+C, yoki boshqa terminaldan `uv run mc stop`.
+    """
     from .collect.browser import SessionDead
 
     db.init()
     cfg = db.load_config()
     every = (interval or cfg["collect"]["poll_interval_minutes"]) * 60
 
-    while True:
-        started = time.time()
+    typer.echo(f"Ishga tushdi (har {every // 60} daqiqada). To'xtatish: Ctrl+C\n")
+
+    # `mc stop` SIGTERM yuboradi -- uni ham Ctrl+C kabi tinch to'xtatish qilamiz,
+    # aks holda brauzer yopilmay qolishi mumkin.
+    import signal
+
+    def _term(_sig, _frm):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, _term)
+
+    with _pidfile("loop"):
         try:
-            for name, fn in _pipeline():
-                typer.echo(f"[{time.strftime('%H:%M:%S')}] {name} …")
-                typer.echo(f"  {fn()}")
-        except SessionDead as e:
-            typer.echo(f"To'xtatildi: {e}")
-            raise typer.Exit(code=2)
-        except Exception as e:
-            typer.echo(f"  xato: {e}")
-        sleep = max(60, every - (time.time() - started))
-        typer.echo(f"[{time.strftime('%H:%M:%S')}] {int(sleep)}s kutish\n")
-        time.sleep(sleep)
+            while True:
+                started = time.time()
+                try:
+                    for name, fn in _pipeline():
+                        typer.echo(f"[{time.strftime('%H:%M:%S')}] {name} …")
+                        typer.echo(f"  {fn()}")
+                except SessionDead as e:
+                    typer.echo(f"To'xtatildi: {e}")
+                    raise typer.Exit(code=2)
+                except Exception as e:
+                    typer.echo(f"  xato: {e}")
+                sleep = max(60, every - (time.time() - started))
+                typer.echo(f"[{time.strftime('%H:%M:%S')}] {int(sleep)}s kutish\n")
+                time.sleep(sleep)
+        except KeyboardInterrupt:
+            typer.echo("\nTo'xtatildi. Yig'ilgan hamma narsa saqlandi — "
+                       "`uv run mc loop` bilan qoldigidan davom etadi.")
+
+
+@app.command()
+def stop():
+    """Ishlayotgan `mc loop` va `mc serve` ni to'xtatadi."""
+    import os
+    import signal
+
+    stopped = []
+    for name, label in [("loop", "dvigatel"), ("web", "dashboard")]:
+        path = db.DATA / f"{name}.pid"
+        if not path.exists():
+            continue
+        try:
+            pid = int(path.read_text().strip())
+        except ValueError:
+            path.unlink(missing_ok=True)
+            continue
+
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            path.unlink(missing_ok=True)   # eskirgan pid fayli
+            continue
+        except PermissionError:
+            typer.echo(f"{label} (pid {pid}) — ruxsat yo'q, qo'lda to'xtating")
+            continue
+
+        # tinch to'xtashini kutamiz, bo'lmasa majburlaymiz
+        for _ in range(50):
+            time.sleep(0.1)
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+        else:
+            with __import__("contextlib").suppress(OSError):
+                os.kill(pid, signal.SIGKILL)
+
+        path.unlink(missing_ok=True)
+        stopped.append(f"{label} (pid {pid})")
+
+    if stopped:
+        typer.echo("To'xtatildi: " + ", ".join(stopped))
+    else:
+        typer.echo("Ishlayotgan jarayon topilmadi.")
 
 
 def _pipeline():
