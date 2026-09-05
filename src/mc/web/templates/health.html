@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="grid md:grid-cols-2 gap-4">
+
+  <div class="bg-white border rounded p-3">
+    <h2 class="font-semibold mb-2">Tizim holati</h2>
+    <table class="w-full">
+      {% for k, v in h.items() %}
+      <tr class="border-b">
+        <td class="py-1 pr-2 text-slate-500">{{ k }}</td>
+        <td class="py-1 {{ 'text-red-600 font-semibold' if 'DEAD' in (v.value or '') else '' }}">{{ v.value }}</td>
+      </tr>
+      {% else %}<tr><td class="text-slate-500 py-2">Hali hech narsa yozilmagan.</td></tr>{% endfor %}
+    </table>
+  </div>
+
+  <div class="bg-white border rounded p-3">
+    <h2 class="font-semibold mb-2">Baza</h2>
+    <table class="w-full">
+      {% for k, v in counts.items() %}
+      <tr class="border-b"><td class="py-1 text-slate-500">{{ k }}</td>
+          <td class="py-1 text-right tabular-nums font-semibold">{{ v }}</td></tr>
+      {% endfor %}
+    </table>
+    <h3 class="font-semibold mt-3 mb-1">Klassifikatsiya navbati</h3>
+    <table class="w-full">
+      {% for s in stages %}
+      <tr class="border-b"><td class="py-1 text-slate-500">{{ s.stage }}</td>
+          <td class="py-1 text-right tabular-nums">{{ s.n }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="bg-white border rounded p-3">
+    <h2 class="font-semibold mb-2">Groq sarfi</h2>
+    <table class="w-full">
+      <tr class="text-slate-500 text-[11px] uppercase">
+        <td>kun</td><td>model</td><td class="text-right">chaqiruv</td><td class="text-right">token</td></tr>
+      {% for u in usage %}
+      <tr class="border-b">
+        <td class="py-1">{{ u.day }}</td>
+        <td class="py-1">{{ u.model.split('/')[-1] }}</td>
+        <td class="py-1 text-right tabular-nums">{{ u.calls }}</td>
+        <td class="py-1 text-right tabular-nums">{{ '{:,}'.format(u.prompt_tokens + u.completion_tokens) }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="bg-white border rounded p-3">
+    <h2 class="font-semibold mb-2">Xatolar</h2>
+    {% for e in errors %}
+      <div class="border-b py-1"><code class="text-slate-500">{{ e.source_id }}</code>
+        <div class="text-red-700">{{ e.error }}</div></div>
+    {% else %}<div class="text-slate-500">Xato yo'q.</div>{% endfor %}
+  </div>
+
+</div>
+{% endblock %}

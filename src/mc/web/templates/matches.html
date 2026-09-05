@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="text-slate-600 mb-3">
+  Xaridor o'zi comment yozgan post bilan <b>hech qachon</b> juftlanmaydi — u uni allaqachon ko'rgan.
+  Bu yerda faqat u ko'rmagan sotuvchilar.
+</p>
+
+<div class="space-y-2">
+{% for m in rows %}
+<div class="bg-white border rounded p-3">
+  <div class="flex gap-3 items-start">
+    <span class="bg-violet-600 text-white font-bold rounded px-2 py-1 tabular-nums">{{ m.score }}</span>
+
+    <div class="flex-1 min-w-0">
+      <div class="flex flex-wrap gap-4">
+        <div>
+          <div class="text-[11px] uppercase text-blue-700">Xaridor · {{ m.buyer_score }}</div>
+          <div class="font-semibold">{{ m.buyer_name or '—' }}</div>
+          <div class="text-slate-500">
+            {{ m.buyer_wants_state or '' }}
+            {% if m.buyer_budget_usd %}· byudjet {{ m.buyer_budget_usd|money }}{% endif %}
+          </div>
+          {% if m.buyer_link %}<a href="{{ m.buyer_link }}" target="_blank" class="text-blue-600 underline">post↗</a>{% endif %}
+        </div>
+        <div class="text-2xl text-slate-300 self-center">→</div>
+        <div>
+          <div class="text-[11px] uppercase text-emerald-700">Sotuvchi · {{ m.seller_score }}</div>
+          <div class="font-semibold">{{ m.seller_name or '—' }}</div>
+          <div class="text-slate-500">
+            MC {{ m.mc_number or '—' }} / DOT {{ m.dot_number or '—' }}
+            {% if m.price_usd %}· {{ m.price_usd|money }}{% endif %}
+          </div>
+          {% if m.seller_link %}<a href="{{ m.seller_link }}" target="_blank" class="text-blue-600 underline">post↗</a>{% endif %}
+        </div>
+      </div>
+
+      <div class="flex flex-wrap gap-1 mt-2">
+        {% for r in m.reasons %}<span class="bg-slate-100 rounded px-1.5 py-0.5">{{ r }}</span>{% endfor %}
+      </div>
+
+      <div class="mt-2 bg-slate-50 border rounded p-2 flex gap-2 items-start">
+        <div class="flex-1 whitespace-pre-wrap">{{ m.intro_text }}</div>
+        <button class="border rounded px-2 py-1 shrink-0 hover:bg-white"
+                onclick="navigator.clipboard.writeText(this.previousElementSibling.innerText); this.innerText='✓'">nusxa</button>
+      </div>
+    </div>
+
+    <form method="post" action="/match/{{ m.match_id }}/status" class="shrink-0">
+      <select name="status" onchange="this.form.submit()" class="border rounded px-1 py-1">
+        {% for s in ['new', 'sent', 'won', 'junk'] %}
+          <option value="{{ s }}" {{ 'selected' if m.status == s }}>{{ s }}</option>{% endfor %}
+      </select>
+    </form>
+  </div>
+</div>
+{% else %}
+  <div class="bg-white border rounded p-8 text-center text-slate-500">
+    Match yo'q. <code>uv run mc match</code> ni yurgizing.
+  </div>
+{% endfor %}
+</div>
+{% endblock %}

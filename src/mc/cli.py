@@ -1,0 +1,239 @@
+"""mc — MC Lead Engine CLI."""
+
+from __future__ import annotations
+
+import time
+
+import typer
+
+from . import db
+
+app = typer.Typer(add_completion=False, help="MC/DOT lead engine")
+
+
+@app.command()
+def init():
+    """Bazani yaratadi."""
+    db.init()
+    typer.echo(f"OK: {db.DB_PATH}")
+
+
+@app.command()
+def login():
+    """Burner FB akkaunt uchun brauzerni ochadi — qo'lda login qilasiz.
+
+    Login qilgach brauzerni yopmang, terminalga Enter bosing.
+    """
+    from .collect.browser import browser, is_logged_in
+
+    db.init()
+    with browser(headless=False) as ctx:
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        page.goto("https://www.facebook.com/", timeout=60000)
+        typer.echo("Brauzerda burner akkaunt bilan login qiling, keyin shu yerda Enter bosing.")
+        input()
+        ok = is_logged_in(page)
+    typer.echo("✅ Sessiya saqlandi" if ok else "❌ Login tasdiqlanmadi")
+
+
+@app.command()
+def collect(
+    group: str = typer.Option(None, help="Guruh ID (default: config.yaml dagi hammasi)"),
+    since_days: int = typer.Option(None, help="Necha kunlik tarix"),
+    comments: bool = typer.Option(True, help="Postlarni ochib comment yig'ish"),
+    dry_run: bool = typer.Option(False, help="Bazaga yozmaydi"),
+):
+    """FB guruhidan post va comment yig'adi."""
+    from .collect.browser import SessionDead, browser
+    from .collect.feed import sweep_feed
+    from .collect.post import fetch_comments, pending_posts
+    from .notify import telegram
+
+    db.init()
+    cfg = db.load_config()
+    groups = [g for g in cfg["groups"] if not group or g["id"] == group]
+    days = since_days or cfg["collect"]["backfill_days"]
+    since_ts = time.time() - days * 86400
+
+    try:
+        with browser(headless=cfg["collect"]["headless"]) as ctx:
+            for g in groups:
+                typer.echo(f"→ {g['name']} ({days} kun)")
+                res = sweep_feed(ctx, g["id"], cfg, since_ts, dry_run=dry_run)
+                typer.echo(f"  feed: {res}")
+
+            if comments and not dry_run:
+                todo = pending_posts(cfg["collect"]["max_posts_per_run"])
+                typer.echo(f"→ {len(todo)} ta postdan comment yig'ilyapti")
+                total = 0
+                for i, p in enumerate(todo, 1):
+                    try:
+                        n = fetch_comments(ctx, p, cfg)
+                        total += n
+                        typer.echo(f"  [{i}/{len(todo)}] {p['post_id']}: +{n} comment")
+                    except SessionDead:
+                        raise
+                    except Exception as e:
+                        typer.echo(f"  [{i}/{len(todo)}] {p['post_id']}: xato {e}")
+                typer.echo(f"  jami: +{total} comment")
+    except SessionDead as e:
+        with db.connect() as conn:
+            db.set_health(conn, "session", f"DEAD: {e}")
+        telegram.alert(f"FB sessiya tushdi:\n{e}\n\n<code>uv run mc login</code> bilan tiklang.")
+        raise typer.Exit(code=2)
+
+    with db.connect() as conn:
+        db.set_health(conn, "session", "OK")
+
+
+@app.command()
+def classify(limit: int = 200):
+    """Yig'ilgan matnlarni BUY/SELL/NOISE ga ajratadi va faktlarni chiqaradi."""
+    from .classify.run import run
+
+    db.init()
+    typer.echo(run(limit=limit))
+
+
+@app.command()
+def enrich(limit: int = 200):
+    """MC/DOT raqamlarini FMCSA bo'yicha tekshiradi."""
+    from .enrich.fmcsa import enrich_pending
+
+    db.init()
+    typer.echo(enrich_pending(limit=limit))
+
+
+@app.command()
+def score():
+    """Ballarni qayta hisoblaydi."""
+    from . import score as scoring
+
+    db.init()
+    typer.echo(scoring.run())
+
+
+@app.command()
+def match():
+    """Buyer<->Seller juftliklarini topadi."""
+    from . import match as matching
+
+    db.init()
+    typer.echo(matching.run())
+
+
+@app.command()
+def notify(dry_run: bool = False):
+    """Yuqori ballli yangi leadlarni Telegram'ga yuboradi."""
+    from .notify import telegram
+
+    db.init()
+    typer.echo(telegram.run(dry_run=dry_run))
+
+
+@app.command()
+def reprocess():
+    """Klassifikatsiyani noldan qayta yurgizadi (qayta scrape qilmasdan)."""
+    db.init()
+    with db.connect() as conn:
+        conn.execute("DELETE FROM leads")
+        conn.execute("DELETE FROM matches")
+        conn.execute("UPDATE classify_state SET stage = 'pending', side_guess = NULL")
+    typer.echo("Navbat tozalandi — endi `mc classify` ni yurgizing.")
+
+
+@app.command()
+def stats():
+    """Qisqacha holat."""
+    db.init()
+    with db.connect() as conn:
+        q = lambda s: conn.execute(s).fetchone()[0]
+        typer.echo(f"posts:    {q('SELECT COUNT(*) FROM posts')}")
+        typer.echo(f"comments: {q('SELECT COUNT(*) FROM comments')}")
+        typer.echo(f"people:   {q('SELECT COUNT(*) FROM people')}")
+        n_sell = q("SELECT COUNT(*) FROM leads WHERE side = 'SELL'")
+        n_buy = q("SELECT COUNT(*) FROM leads WHERE side = 'BUY'")
+        typer.echo(f"leads:    {q('SELECT COUNT(*) FROM leads')} (SELL {n_sell}, BUY {n_buy})")
+        typer.echo(f"matches:  {q('SELECT COUNT(*) FROM matches')}")
+        for r in conn.execute("SELECT stage, COUNT(*) n FROM classify_state GROUP BY stage"):
+            typer.echo(f"  classify/{r['stage']}: {r['n']}")
+        for r in conn.execute(
+            "SELECT model, prompt_tokens + completion_tokens t FROM llm_usage WHERE day = ?",
+            (time.strftime("%Y-%m-%d"),)
+        ):
+            typer.echo(f"  bugungi token {r['model']}: {r['t']}")
+
+
+@app.command()
+def serve(host: str = "127.0.0.1", port: int = 8000):
+    """Dashboard'ni ishga tushiradi."""
+    import uvicorn
+
+    db.init()
+    uvicorn.run("mc.web.app:app", host=host, port=port, log_level="info")
+
+
+@app.command()
+def loop(interval: int = None):
+    """Doimiy rejim: collect -> classify -> enrich -> score -> match -> notify."""
+    from .collect.browser import SessionDead
+
+    db.init()
+    cfg = db.load_config()
+    every = (interval or cfg["collect"]["poll_interval_minutes"]) * 60
+
+    while True:
+        started = time.time()
+        try:
+            for name, fn in _pipeline():
+                typer.echo(f"[{time.strftime('%H:%M:%S')}] {name} …")
+                typer.echo(f"  {fn()}")
+        except SessionDead as e:
+            typer.echo(f"To'xtatildi: {e}")
+            raise typer.Exit(code=2)
+        except Exception as e:
+            typer.echo(f"  xato: {e}")
+        sleep = max(60, every - (time.time() - started))
+        typer.echo(f"[{time.strftime('%H:%M:%S')}] {int(sleep)}s kutish\n")
+        time.sleep(sleep)
+
+
+def _pipeline():
+    from . import match as matching
+    from . import score as scoring
+    from .classify.run import run as classify_run
+    from .collect.browser import browser
+    from .collect.feed import sweep_feed
+    from .collect.post import fetch_comments, pending_posts
+    from .enrich.fmcsa import enrich_pending
+    from .notify import telegram
+
+    cfg = db.load_config()
+
+    def _collect():
+        since_ts = time.time() - cfg["collect"]["backfill_days"] * 86400
+        out = {}
+        with browser(headless=cfg["collect"]["headless"]) as ctx:
+            for g in cfg["groups"]:
+                out[g["id"]] = sweep_feed(ctx, g["id"], cfg, since_ts)
+            n = 0
+            for p in pending_posts(cfg["collect"]["max_posts_per_run"]):
+                try:
+                    n += fetch_comments(ctx, p, cfg)
+                except Exception:
+                    continue
+            out["comments"] = n
+        return out
+
+    return [
+        ("collect", _collect),
+        ("classify", lambda: classify_run(limit=200, verbose=False)),
+        ("enrich", lambda: enrich_pending(limit=100, verbose=False)),
+        ("score", scoring.run),
+        ("match", matching.run),
+        ("notify", telegram.run),
+    ]
+
+
+if __name__ == "__main__":
+    app()

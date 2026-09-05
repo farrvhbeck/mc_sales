@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% import "_lead.html" as L %}
+{% block content %}
+{% if not p %}
+  <div class="bg-white border rounded p-8 text-center text-slate-500">Topilmadi.</div>
+{% else %}
+<div class="bg-white border rounded p-4 mb-3">
+  <div class="flex items-center gap-3 flex-wrap">
+    <h1 class="text-xl font-bold">{{ p.name or p.person_id }}</h1>
+    {% if p.is_suspected_reseller %}
+      <span class="bg-orange-100 text-orange-800 rounded px-2 py-0.5">serial sotuvchi</span>{% endif %}
+    {% if p.profile_url %}<a href="{{ p.profile_url }}" target="_blank" class="text-blue-600 underline">FB profil↗</a>{% endif %}
+  </div>
+  <div class="mt-2 flex gap-6 text-slate-600">
+    <span>Sotuv posti: <b class="text-emerald-700">{{ p.n_sell }}</b></span>
+    <span>Xarid posti: <b class="text-blue-700">{{ p.n_buy }}</b></span>
+    <span>Birinchi ko'rilgan: {{ p.first_seen|ago }} oldin</span>
+  </div>
+</div>
+
+<h2 class="font-semibold mb-2">Tarix ({{ leads|length }})</h2>
+<div class="space-y-1">
+{% for r in leads %}
+  <div class="bg-white border rounded p-2 flex gap-3 items-start">
+    {{ L.badge(r.score) }}
+    <span class="text-[11px] rounded px-1.5 py-0.5 shrink-0
+      {{ 'bg-emerald-100 text-emerald-800' if r.side == 'SELL' else 'bg-blue-100 text-blue-800' }}">{{ r.side }}</span>
+    <div class="flex-1 min-w-0">
+      <div class="text-slate-700">{{ (r.text or '')[:400] }}</div>
+      <div class="text-slate-400 mt-0.5">
+        {{ r.ts|ago }} · {{ r.source_type }} · {{ r.status }}
+        {% if r.price_usd %} · {{ r.price_usd|money }}{% endif %}
+        {% if r.mc_number %} · MC {{ r.mc_number }}{% endif %}
+      </div>
+    </div>
+    {% if r.permalink %}<a href="{{ r.permalink }}" target="_blank" class="border rounded px-2 py-1">FB↗</a>{% endif %}
+  </div>
+{% endfor %}
+</div>
+{% endif %}
+{% endblock %}

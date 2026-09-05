@@ -1,0 +1,63 @@
+# MC Lead Engine konfiguratsiyasi
+
+groups:
+  - id: "1473049439938346"
+    name: "MC & DOT Authorization BUY/SELL"
+
+collect:
+  backfill_days: 7
+  poll_interval_minutes: 10
+  # Insonga o'xshash xatti-harakat -- FB checkpoint qo'ymasligi uchun
+  scroll_pause_seconds: [2.0, 5.0]     # tasodifiy oraliq
+  max_scrolls_per_run: 40
+  post_open_pause_seconds: [3.0, 7.0]  # comment yig'ish uchun post ochish orasida
+  max_posts_per_run: 30
+  headless: false                       # headful -- ban riski pastroq
+
+llm:
+  base_url: "https://api.groq.com/openai/v1"
+  triage_model: "openai/gpt-oss-20b"       # T1: BUY/SELL/NOISE
+  extract_model: "openai/gpt-oss-120b"     # T2: strukturali ekstraksiya
+  triage_batch_size: 10
+  # gpt-oss reasoning tokenini cheklaydi -- busiz javob bo'sh qaytadi
+  reasoning_effort: "low"
+  # Free tier: 1000 RPD, 8000 TPM, ~200K TPD (o'lchangan 2026-09-05)
+  daily_token_budget: 180000
+  tpm_limit: 8000
+  max_retries: 5
+
+fmcsa:
+  base_url: "https://mobile.fmcsa.dot.gov/qc/services"
+  cache_days: 14
+
+score:
+  seller:
+    mc_verified_active: 25
+    mc_inactive_penalty: -30
+    age_2y: 10
+    age_5y: 18
+    age_10y: 25
+    price_stated: 10
+    direct_contact: 15
+    has_perks: 10          # Amazon / clean record / insurance
+    freshness_max: 20
+    freshness_halflife_hours: 24
+    reseller_penalty: -15
+    phone_mismatch_penalty: -20
+  buyer:
+    clear_intent: 25
+    budget_stated: 15
+    state_stated: 10
+    specific_requirements: 10
+    direct_contact: 15
+    freshness_max: 20
+    freshness_halflife_hours: 24
+    lowballer_penalty: -15
+
+notify:
+  sell_threshold: 65
+  buy_threshold: 60
+
+match:
+  price_tolerance: 1.2     # narx <= byudjet * 1.2
+  max_per_buyer: 5
