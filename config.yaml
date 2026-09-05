@@ -1,10 +1,31 @@
 # MC Lead Engine konfiguratsiyasi
 
 groups:
+  # 2026-09-06 da FB qidiruvidan tanlangan. Ko'proq guruh = ko'proq scroll = ban riski,
+  # shuning uchun faqat aniq MC/DOT savdo guruhlari, faolligi bo'yicha tartiblangan.
   - id: "1473049439938346"
-    name: "MC & DOT Authorization BUY/SELL"
+    name: "MC & DOT Authorization BUY/SELL"        # 21.6K
+  - id: "1233663224655514"
+    name: "MC/DOT numbers for Sale/Purchase"       # 5.7K, 8 post/kun
+  - id: "1006507597156807"
+    name: "MC For Sale or Buy"                     # 6.2K
+  - id: "739550898090085"
+    name: "Trucking/Transportation MC Authority for sale or buy"   # 5K, 3 post/kun
+  - id: "1740880662982198"
+    name: "Trucking/Transportation MC Authority (2)"               # 3.5K, 2 post/kun
+  - id: "1394483628456245"
+    name: "MC and DOT buying/selling"              # 3K, 3 post/kun
+  - id: "2255933717949809"
+    name: "MC for sale"                            # 2.2K, 3 post/kun
+  - id: "585833072069684"
+    name: "MC / DOT / CORP for SALE"               # 2K
 
 collect:
+  # Comment yig'ish hozircha o'chirilgan -- faqat postlardan qidiramiz.
+  # Kod joyida turibdi, kerak bo'lsa true qilinadi.
+  comments: false
+  # Rasmli postlar hozircha o'tkazib yuboriladi (OCR keyingi versiyada).
+  min_text_chars: 25
   backfill_days: 7
   poll_interval_minutes: 10
   # Insonga o'xshash xatti-harakat -- FB checkpoint qo'ymasligi uchun
@@ -61,3 +82,12 @@ notify:
 match:
   price_tolerance: 1.2     # narx <= byudjet * 1.2
   max_per_buyer: 5
+
+# Sheriklarning MC uchun talablari (Sarvar, 2026-09-06)
+requirements:
+  min_age_months: 6
+  # Sotuvda albatta topshirilishi kerak:
+  must_include: [bank, email, phone]
+  # Amazon majburiy emas, lekin bor bo'lsa katta plyus
+  amazon_bonus: 15
+  amazon_rejected_penalty: -10

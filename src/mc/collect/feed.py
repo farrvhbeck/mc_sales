@@ -66,11 +66,11 @@ def sweep_feed(
                     "person_id": d.get("person_id"),
                     "text": d.get("text", ""),
                     "permalink": f"https://www.facebook.com/groups/{group_id}/posts/{d['post_id']}/",
-                    "created_at": None,
+                    "created_at": normalize.parse_aria_date(d.get("created_label")),
                     "n_comments": None,
                     "n_reactions": None,
                     "raw_path": None,
-                    "_author_name": None,
+                    "_author_name": d.get("author_name"),
                     "_author_url": None,
                 }
         except Exception:
@@ -78,14 +78,21 @@ def sweep_feed(
 
     page.close()
 
-    fresh = [
-        p for p in all_posts.values()
-        if p["created_at"] is None or p["created_at"] >= since_ts
-    ]
+    # Rasmli/qisqa postlar hozircha o'tkazib yuboriladi (OCR keyingi versiyada)
+    min_chars = c.get("min_text_chars", 25)
+    fresh, skipped = [], 0
+    for p in all_posts.values():
+        if p["created_at"] is not None and p["created_at"] < since_ts:
+            continue
+        if len((p.get("text") or "").strip()) < min_chars:
+            skipped += 1
+            continue
+        fresh.append(p)
 
     result = {
         "seen": len(all_posts),
         "fresh": len(fresh),
+        "skipped_short": skipped,
         "new": 0,
         "oldest": oldest,
         "dom_fallback": dom_used,

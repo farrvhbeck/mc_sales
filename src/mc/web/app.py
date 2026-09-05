@@ -47,6 +47,8 @@ def _ago(ts: float | None) -> str:
 
 tpl.env.filters["ago"] = _ago
 tpl.env.filters["money"] = lambda v: f"${v:,}" if v else "—"
+tpl.env.filters["age"] = lambda y: (
+    "—" if y is None else (f"{round(y * 12)} oy" if y < 1 else f"{round(y, 1)} yil"))
 tpl.env.filters["isnew"] = lambda ts: bool(ts) and (time.time() - ts) < 7200
 tpl.env.filters["dur"] = lambda s: (f"{s:.0f}s" if s and s < 90 else
                                     (f"{s/60:.0f}d" if s else "—"))
@@ -77,6 +79,9 @@ def _rows(side: str, args: dict) -> list[dict]:
         params.append(time.time() - 24 * 3600)
     if args.get("has_contact"):
         where.append("l.contact_value IS NOT NULL")
+    if args.get("fit"):
+        where.append("l.fit_verdict = ?")
+        params.append(args["fit"])
     if args.get("q"):
         where.append("(COALESCE(p.text, c.text) LIKE ? OR pe.name LIKE ?)")
         params += [f"%{args['q']}%", f"%{args['q']}%"]
@@ -91,6 +96,8 @@ def _rows(side: str, args: dict) -> list[dict]:
 
     for r in rows:
         r["breakdown"] = json.loads(r["score_breakdown"]) if r["score_breakdown"] else []
+        r["fit_reasons"] = json.loads(r["fit_reasons"]) if r["fit_reasons"] else []
+        r["fit_missing"] = json.loads(r["fit_missing"]) if r["fit_missing"] else []
         r["fmcsa"] = fmcsa.for_lead(r) if r["side"] == "SELL" else None
     return rows
 

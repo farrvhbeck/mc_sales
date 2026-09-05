@@ -23,18 +23,22 @@ Extract only what the text actually states. Use null for anything not stated - n
 - authority_age_years: if the text says "17 yr mc" -> 17; if it says "established since 2020" -> compute from 2026.
 - contact_method: "phone", "email", "whatsapp", "dm", or null. contact_value only if an actual number/address is written.
 - urgency: "high" if words like asap, urgent, today, must sell; "low" if casual; else "normal".
-- confidence: 0..1, how sure you are about side and the extracted fields."""
+- confidence: 0..1, how sure you are about side and the extracted fields.
+
+Buyers of these entities need the whole shell handed over, so pay close attention to:
+- includes_bank / includes_email / includes_phone: true ONLY if the text says the business
+  bank account / email / phone number comes with the sale ("comes with bank account",
+  "email and phone included", "full package", "everything included"). false if the text
+  says they are NOT included. null if not mentioned at all - this is the common case.
+- amazon_status: "approved" (has an active/clean Amazon Relay account), "rejected"
+  (applied and was denied - "Amazon Rejected"), "never_applied" ("never applied to Amazon",
+  which buyers often prefer because they can apply fresh), or null if not mentioned.
+- authority_age_years: convert months to years ("8-Month-Old MC" -> 0.67,
+  "at least 1 yr aged" -> 1.0, "2y+" -> 2.0)."""
 
 EXTRACT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": [
-        "side", "mc_number", "dot_number", "authority_since", "authority_age_years",
-        "entity_type", "state", "price_usd", "price_is_negotiable", "has_amazon",
-        "has_trucks", "has_insurance", "clean_record", "buyer_budget_usd",
-        "buyer_wants_state", "buyer_min_age_years", "buyer_needs_amazon",
-        "contact_method", "contact_value", "urgency", "confidence",
-    ],
     "properties": {
         "side": {"type": "string", "enum": ["SELL", "BUY", "NOISE"]},
         "mc_number": {"type": ["string", "null"]},
@@ -46,6 +50,11 @@ EXTRACT_SCHEMA = {
         "price_usd": {"type": ["integer", "null"]},
         "price_is_negotiable": {"type": ["boolean", "null"]},
         "has_amazon": {"type": ["boolean", "null"]},
+        "amazon_status": {"type": ["string", "null"],
+                          "enum": ["approved", "rejected", "never_applied", None]},
+        "includes_bank": {"type": ["boolean", "null"]},
+        "includes_email": {"type": ["boolean", "null"]},
+        "includes_phone": {"type": ["boolean", "null"]},
         "has_trucks": {"type": ["boolean", "null"]},
         "has_insurance": {"type": ["boolean", "null"]},
         "clean_record": {"type": ["boolean", "null"]},
@@ -59,3 +68,7 @@ EXTRACT_SCHEMA = {
         "confidence": {"type": "number"},
     },
 }
+
+# Groq strict rejimi `required` da HAR BIR property bo'lishini talab qiladi --
+# qo'lda yozilsa maydon qo'shganda unutiladi, shuning uchun generatsiya qilamiz.
+EXTRACT_SCHEMA["required"] = list(EXTRACT_SCHEMA["properties"])

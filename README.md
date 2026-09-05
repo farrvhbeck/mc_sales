@@ -3,7 +3,8 @@
 FB guruhlaridan MC/DOT authority sotuvchi va sotib oluvchilarni topadi, tekshiradi,
 ballaydi va bir dashboard'da ko'rsatadi.
 
-Guruh: `MC & DOT Authorization BUY/SELL` (`1473049439938346`, public, 21.6K a'zo)
+**8 ta FB guruhi** kuzatiladi (`config.yaml`), hammasi public MC/DOT savdo guruhlari.
+Hozircha faqat **matnli postlar** — comment va rasmli postlar keyingi versiyada.
 
 **Noldan o'rnatish: [SETUP.md](SETUP.md)**
 
@@ -72,6 +73,12 @@ Bu akkauntda `llama-3.3-70b` va `llama-3.1-8b` **yo'q**; mavjudlari:
 `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `qwen/qwen3.6-27b`, `qwen/qwen3.8-27b`.
 Limit (o'lchangan): **1000 RPD, 8000 TPM, ~200K TPD**. `llm_usage` jadvali kunlik
 sarfni hisoblaydi, 180K da to'xtaydi.
+
+**Talab tekshiruvi.** Sheriklarning shartlari `config.yaml` dagi `requirements` blokida:
+MC minimum **6 oy**, sotuvda **bank hisobi + email + telefon** topshirilishi shart,
+Amazon approved — plyus. Har bir sotuvchi lead uchta hukmdan birini oladi:
+`TALABGA MOS` / `SO'RASH KERAK` (ma'lumot yetishmaydi) / `MOS EMAS`.
+Yosh FMCSA'dan olinadi, da'vodan emas.
 
 **Ball deterministik.** LLM faqat faktlarni ajratadi, ball `config.yaml` dagi
 og'irliklar bilan hisoblanadi. Har bir lead'da "nega 84 ball" ochib ko'rsatiladi.

@@ -40,7 +40,7 @@ def login():
 def collect(
     group: str = typer.Option(None, help="Guruh ID (default: config.yaml dagi hammasi)"),
     since_days: int = typer.Option(None, help="Necha kunlik tarix"),
-    comments: bool = typer.Option(True, help="Postlarni ochib comment yig'ish"),
+    comments: bool = typer.Option(None, help="Comment yig'ish (default: config.yaml)"),
     dry_run: bool = typer.Option(False, help="Bazaga yozmaydi"),
 ):
     """FB guruhidan post va comment yig'adi."""
@@ -55,6 +55,8 @@ def collect(
     groups = [g for g in cfg["groups"] if not group or g["id"] == group]
     days = since_days or cfg["collect"]["backfill_days"]
     since_ts = time.time() - days * 86400
+    if comments is None:
+        comments = cfg["collect"].get("comments", False)
 
     try:
         with runs.track("manual") as r, r.step("collect") as st:
@@ -377,13 +379,14 @@ def _pipeline():
         with browser(headless=cfg["collect"]["headless"]) as ctx:
             for g in cfg["groups"]:
                 out[g["id"]] = sweep_feed(ctx, g["id"], cfg, since_ts)
-            n = 0
-            for p in pending_posts(cfg["collect"]["max_posts_per_run"]):
-                try:
-                    n += fetch_comments(ctx, p, cfg)
-                except Exception:
-                    continue
-            out["comments"] = n
+            if cfg["collect"].get("comments", False):
+                n = 0
+                for p in pending_posts(cfg["collect"]["max_posts_per_run"]):
+                    try:
+                        n += fetch_comments(ctx, p, cfg)
+                    except Exception:
+                        continue
+                out["comments"] = n
         return out
 
     return [

@@ -35,6 +35,19 @@
   {% endif %}
 {% endmacro %}
 
+{% macro fit_badge(lead) %}
+  {% if lead.fit_verdict == 'pass' %}
+    <span class="bg-emerald-600 text-white rounded px-2 py-0.5 text-[12px] font-semibold whitespace-nowrap"
+          title="{{ lead.fit_reasons|join(' · ') }}">TALABGA MOS</span>
+  {% elif lead.fit_verdict == 'fail' %}
+    <span class="bg-red-600 text-white rounded px-2 py-0.5 text-[12px] font-semibold whitespace-nowrap"
+          title="{{ lead.fit_reasons|join(' · ') }}">MOS EMAS</span>
+  {% elif lead.fit_verdict == 'ask' %}
+    <span class="bg-amber-500 text-white rounded px-2 py-0.5 text-[12px] font-semibold whitespace-nowrap"
+          title="So'rash kerak: {{ lead.fit_missing|join(', ') }}">SO'RASH KERAK</span>
+  {% endif %}
+{% endmacro %}
+
 {% macro detail(lead, back) %}
 <details class="group/d mt-1.5">
   <summary class="cursor-pointer inline-flex items-center gap-1 text-[12px] text-slate-500 hover:text-slate-900 select-none">
@@ -75,6 +88,17 @@
     </div>
 
     <div>
+      {% if lead.side == 'SELL' and lead.fit_verdict %}
+        <div class="font-semibold text-slate-400 uppercase text-[10px] tracking-wider mb-1.5">Talab tekshiruvi</div>
+        <ul class="mb-3 space-y-0.5">
+          {% for r in lead.fit_reasons %}<li>{{ r }}</li>{% endfor %}
+          {% if lead.fit_missing %}
+            <li class="text-amber-700 font-medium mt-1">
+              Aniqlanmagan — so'rang: {{ lead.fit_missing|join(', ') }}</li>
+          {% endif %}
+        </ul>
+      {% endif %}
+
       {% if lead.fmcsa %}
       <div class="font-semibold text-slate-400 uppercase text-[10px] tracking-wider mb-1.5">FMCSA rasmiy yozuvi</div>
       <table class="w-full">

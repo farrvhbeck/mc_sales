@@ -11,7 +11,8 @@ from .schema import EXTRACT_SCHEMA, EXTRACT_SYSTEM, TRIAGE_SYSTEM
 
 EXTRACT_FIELDS = [
     "mc_number", "dot_number", "authority_since", "authority_age_years", "entity_type",
-    "state", "price_usd", "price_is_negotiable", "has_amazon", "has_trucks",
+    "state", "price_usd", "price_is_negotiable", "has_amazon", "amazon_status",
+    "includes_bank", "includes_email", "includes_phone", "has_trucks",
     "has_insurance", "clean_record", "buyer_budget_usd", "buyer_wants_state",
     "buyer_min_age_years", "buyer_needs_amazon", "contact_method", "contact_value",
     "urgency",
@@ -165,7 +166,8 @@ def run(limit: int = 200, verbose: bool = True) -> dict:
                 contact_method=contact_method,
             )
             for k in ("price_is_negotiable", "has_amazon", "has_trucks",
-                      "has_insurance", "clean_record", "buyer_needs_amazon"):
+                      "has_insurance", "clean_record", "buyer_needs_amazon",
+                      "includes_bank", "includes_email", "includes_phone"):
                 if payload[k] is not None:
                     payload[k] = int(bool(payload[k]))
 

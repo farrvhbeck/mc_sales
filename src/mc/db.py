@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS leads (
     price_usd           INTEGER,
     price_is_negotiable INTEGER,
     has_amazon          INTEGER,
+    amazon_status       TEXT,
+    includes_bank       INTEGER,
+    includes_email      INTEGER,
+    includes_phone      INTEGER,
     has_trucks          INTEGER,
     has_insurance       INTEGER,
     clean_record        INTEGER,
@@ -88,6 +92,9 @@ CREATE TABLE IF NOT EXISTS leads (
 
     score           INTEGER,
     score_breakdown TEXT,
+    fit_verdict     TEXT,        -- 'pass' | 'ask' | 'fail'
+    fit_reasons     TEXT,
+    fit_missing     TEXT,
     status          TEXT DEFAULT 'new',
     note            TEXT,
 
@@ -183,9 +190,26 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+NEW_COLUMNS = [
+    ("leads", "amazon_status", "TEXT"),
+    ("leads", "includes_bank", "INTEGER"),
+    ("leads", "includes_email", "INTEGER"),
+    ("leads", "includes_phone", "INTEGER"),
+    ("leads", "fit_verdict", "TEXT"),
+    ("leads", "fit_reasons", "TEXT"),
+    ("leads", "fit_missing", "TEXT"),
+    ("posts", "group_name", "TEXT"),
+]
+
+
 def init() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        # Eski bazani yangi ustunlar bilan to'ldirish
+        for table, col, typ in NEW_COLUMNS:
+            have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if col not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
 
 
 def load_config() -> dict[str, Any]:

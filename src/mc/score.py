@@ -14,6 +14,66 @@ from . import db
 from .enrich import fmcsa
 
 
+INCLUDE_LABELS = {"bank": "bank hisobi", "email": "email", "phone": "telefon"}
+
+
+def evaluate_fit(lead: dict, fm: dict | None, req: dict) -> dict:
+    """Sheriklarning talabiga mos keladimi?
+
+    Uch hukm:
+      pass — talabga javob beradi (yoshi yetadi va bank/email/telefon topshiriladi)
+      ask  — to'sadigan narsa yo'q, lekin ma'lumot yetishmaydi → so'rash kerak
+      fail — aniq mos emas (yosh, yoki biror narsa berilmasligi aytilgan)
+    """
+    reasons: list[str] = []
+    missing: list[str] = []
+    verdict = "pass"
+
+    min_years = req["min_age_months"] / 12
+    age = (fm or {}).get("age_years")
+    age_src = "FMCSA"
+    if age is None:
+        age, age_src = lead.get("authority_age_years"), "da'vo"
+
+    if age is None:
+        missing.append("yosh")
+        verdict = "ask"
+    elif age < min_years:
+        months = round(age * 12)
+        reasons.append(f"❌ {months} oylik — minimum {req['min_age_months']} oy")
+        verdict = "fail"
+    else:
+        shown = f"{round(age * 12)} oy" if age < 1 else f"{age} yil"
+        reasons.append(f"✓ {shown} ({age_src})")
+
+    for key in req["must_include"]:
+        val = lead.get(f"includes_{key}")
+        label = INCLUDE_LABELS.get(key, key)
+        if val == 1:
+            reasons.append(f"✓ {label} beriladi")
+        elif val == 0:
+            reasons.append(f"❌ {label} berilmaydi")
+            verdict = "fail"
+        else:
+            missing.append(label)
+            if verdict == "pass":
+                verdict = "ask"
+
+    status = lead.get("amazon_status")
+    if status == "approved":
+        reasons.append("✓ Amazon approved")
+    elif status == "rejected":
+        reasons.append("⚠ Amazon rejected")
+    elif status == "never_applied":
+        reasons.append("○ Amazon'ga hech qachon murojaat qilmagan")
+
+    if fm and fm.get("status") and fm["status"] != "ACTIVE":
+        reasons.append(f"❌ FMCSA: {fm['status']}")
+        verdict = "fail"
+
+    return {"verdict": verdict, "reasons": reasons, "missing": missing}
+
+
 def _freshness(ts: float | None, max_pts: float, halflife_h: float) -> float:
     if not ts:
         return max_pts * 0.25          # vaqt noma'lum -- o'rtacha jazо
@@ -65,9 +125,26 @@ def score_seller(lead: dict, w: dict, person: dict | None, fm: dict | None) -> t
     if lead.get("contact_method") in ("phone", "email", "whatsapp") and lead.get("contact_value"):
         b.append((f"To'g'ridan-to'g'ri kontakt ({lead['contact_method']})", w["direct_contact"]))
 
-    perks = [k for k in ("has_amazon", "has_insurance", "clean_record") if lead.get(k)]
+    perks = [k for k in ("has_insurance", "clean_record") if lead.get(k)]
     if perks:
         b.append((f"Qo'shimcha: {', '.join(perks)}", w["has_perks"]))
+
+    # Sheriklar talabi: bank + email + telefon topshirilishi shart
+    req = _REQ
+    given = [k for k in req["must_include"] if lead.get(f"includes_{k}") == 1]
+    refused = [k for k in req["must_include"] if lead.get(f"includes_{k}") == 0]
+    if given:
+        b.append((f"To'liq paket: {', '.join(INCLUDE_LABELS[k] for k in given)}",
+                  10 * len(given)))
+    if refused:
+        b.append((f"Berilmaydi: {', '.join(INCLUDE_LABELS[k] for k in refused)}",
+                  -25 * len(refused)))
+
+    status = lead.get("amazon_status")
+    if status == "approved":
+        b.append(("Amazon approved", req["amazon_bonus"]))
+    elif status == "rejected":
+        b.append(("Amazon rejected", req["amazon_rejected_penalty"]))
 
     ts = lead.get("created_at_src")
     b.append(("Yangilik", round(_freshness(ts, w["freshness_max"], w["freshness_halflife_hours"]), 1)))
@@ -111,10 +188,15 @@ def score_buyer(lead: dict, w: dict, person: dict | None) -> tuple[int, list]:
     return max(0, min(100, round(total))), b
 
 
+_REQ: dict = {}
+
+
 def run(limit: int = 5000) -> dict:
+    global _REQ
     cfg = db.load_config()
     ws, wb = cfg["score"]["seller"], cfg["score"]["buyer"]
-    stats = {"scored": 0}
+    _REQ = cfg["requirements"]
+    stats = {"scored": 0, "pass": 0, "ask": 0, "fail": 0}
 
     with db.connect() as conn:
         rows = conn.execute(
@@ -136,13 +218,25 @@ def run(limit: int = 5000) -> dict:
         if lead["side"] == "SELL":
             fm = fmcsa.for_lead(lead)
             score, breakdown = score_seller(lead, ws, person, fm)
+            fit = evaluate_fit(lead, fm, _REQ)
+            stats[fit["verdict"]] += 1
+            # Talabga mos kelmasa ball ham tushsin -- ro'yxat tepasida turmasin
+            if fit["verdict"] == "fail":
+                score = min(score, 25)
         else:
             score, breakdown = score_buyer(lead, wb, person)
-        updates.append((score, json.dumps(breakdown, ensure_ascii=False), lead["lead_id"]))
+            fit = {"verdict": None, "reasons": [], "missing": []}
+        updates.append((
+            score, json.dumps(breakdown, ensure_ascii=False),
+            fit["verdict"], json.dumps(fit["reasons"], ensure_ascii=False),
+            json.dumps(fit["missing"], ensure_ascii=False), lead["lead_id"],
+        ))
         stats["scored"] += 1
 
     with db.connect() as conn:
         conn.executemany(
-            "UPDATE leads SET score = ?, score_breakdown = ? WHERE lead_id = ?", updates
+            """UPDATE leads SET score = ?, score_breakdown = ?, fit_verdict = ?,
+                                fit_reasons = ?, fit_missing = ? WHERE lead_id = ?""",
+            updates,
         )
     return stats

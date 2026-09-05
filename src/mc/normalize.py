@@ -149,20 +149,42 @@ def extract_comments(payload: Any, post_id: str) -> list[dict]:
 
 # --- DOM fallback --------------------------------------------------------
 
+# Selektorlar 2026-09-06 da real FB guruhida brauzerda tekshirilgan.
+# `div[data-ad-rendering-role="story_message"]` -- post matni (faqat matn, chrome'siz).
+# Vaqt belgisi ekranda CSS bilan aralashtirilgan, lekin havolaning `aria-label` ida
+# toza sana turadi: "Saturday, September 5, 2026 at 1:34 AM".
 DOM_POSTS_JS = r"""
 () => {
   const gid = location.pathname.match(/groups\/(\d+)/)?.[1] || null;
   const out = [];
-  for (const el of document.querySelectorAll('div[role="article"]')) {
-    const aria = el.getAttribute('aria-label') || '';
-    if (aria.startsWith('Comment')) continue;
-    const html = el.innerHTML;
+  for (const msg of document.querySelectorAll('div[data-ad-rendering-role="story_message"]')) {
+    const txt = (msg.innerText || '').trim();
+    if (!txt) continue;
+
+    // Postning o'zigacha ko'tarilamiz
+    let story = msg;
+    for (let i = 0; i < 12 && story; i++) {
+      if (story.querySelector && story.querySelector('a[href*="/posts/"]')) break;
+      story = story.parentElement;
+    }
+    if (!story) continue;
+
+    const html = story.innerHTML;
     const pid = (html.match(/groups\/\d+\/posts\/(\d+)/) || [])[1];
     if (!pid) continue;
-    const txt = (el.innerText || '').trim();
-    if (!txt) continue;
-    const href = (html.match(/href="([^"]*\/user\/(\d+)[^"]*)"/) || []);
-    out.push({post_id: pid, group_id: gid, text: txt, person_id: href[2] || null});
+
+    let created = null;
+    for (const a of story.querySelectorAll('a[href*="/posts/"]')) {
+      const al = a.getAttribute('aria-label');
+      if (al && /\d{4}/.test(al)) { created = al; break; }
+    }
+    const uid = (html.match(/\/user\/(\d+)/) || [])[1] || null;
+    let name = null;
+    const h = story.querySelector('h3, h4, strong');
+    if (h) name = (h.innerText || '').trim().split('\n')[0] || null;
+
+    out.push({post_id: pid, group_id: gid, text: txt,
+              person_id: uid, author_name: name, created_label: created});
   }
   return out;
 }
@@ -183,6 +205,27 @@ DOM_COMMENTS_JS = r"""
   return out;
 }
 """
+
+
+def parse_aria_date(label: str | None) -> float | None:
+    """FB'ning `aria-label` sanasi -> unix. Vizual timestamp aralashtirilgan bo'lsa ham
+    bu havolada toza turadi: "Saturday, September 5, 2026 at 1:34 AM".
+    """
+    if not label:
+        return None
+    from datetime import datetime
+
+    txt = re.sub(r"^\w+day,\s*", "", label.strip())
+    for fmt in ("%B %d, %Y at %I:%M %p", "%d %B %Y at %I:%M %p",
+                "%B %d, %Y", "%B %d at %I:%M %p"):
+        try:
+            dt = datetime.strptime(txt, fmt)
+            if dt.year == 1900:
+                dt = dt.replace(year=datetime.now().year)
+            return dt.timestamp()
+        except ValueError:
+            continue
+    return None
 
 
 def parse_relative_time(rel: str, now: float) -> float | None:

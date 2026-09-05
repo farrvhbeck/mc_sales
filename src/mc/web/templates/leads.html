@@ -42,6 +42,17 @@
     <input name="state" value="{{ args.state or '' }}" placeholder="FL" maxlength="2"
            class="border border-slate-300 rounded px-2 py-1.5 w-16 uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"></label>
 
+  {% if is_sell %}
+  <label class="flex flex-col gap-1">
+    <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Talab</span>
+    <select name="fit" class="border border-slate-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+      <option value="">— hammasi</option>
+      <option value="pass" {{ 'selected' if args.fit == 'pass' }}>Mos</option>
+      <option value="ask"  {{ 'selected' if args.fit == 'ask' }}>So'rash kerak</option>
+      <option value="fail" {{ 'selected' if args.fit == 'fail' }}>Mos emas</option>
+    </select></label>
+  {% endif %}
+
   <label class="flex flex-col gap-1">
     <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Saralash</span>
     <select name="sort" class="border border-slate-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -63,7 +74,7 @@
   </div>
 
   <button class="bg-slate-800 hover:bg-slate-700 text-white rounded px-4 py-1.5 font-medium">Filtr</button>
-  {% if args.min_score or args.state or args.q or args.fresh or args.has_contact or args.sort %}
+  {% if args.min_score or args.state or args.q or args.fresh or args.has_contact or args.sort or args.fit %}
     <a href="{{ request.url.path }}?status={{ args.status or '' }}"
        class="text-slate-500 hover:text-slate-900 underline py-1.5">tozalash</a>
   {% endif %}
@@ -91,16 +102,24 @@
           {% if r.source_type == 'comment' %}{{ L.chip('💬 comment', 'violet') }}{% endif %}
           {% if r.is_suspected_reseller %}{{ L.chip('serial · ' ~ r.n_sell, 'orange', 'Bu odam ko\'p marta sotmoqda') }}{% endif %}
 
+          {{ L.fit_badge(r) }}
           {{ L.fmcsa_chip(r.fmcsa, r) }}
 
           {% if is_sell %}
             {% if r.price_usd %}<span class="font-bold text-[14px]">{{ r.price_usd|money }}</span>{% endif %}
-            {% if not r.fmcsa and r.authority_age_years %}{{ L.chip(r.authority_age_years ~ 'y (da\'vo)', 'slate') }}{% endif %}
-            {% if r.has_amazon %}{{ L.chip('Amazon', 'slate') }}{% endif %}
+            {% if not r.fmcsa and r.authority_age_years %}{{ L.chip((r.authority_age_years|age) ~ " (da'vo)", 'slate') }}{% endif %}
+            {% if r.amazon_status == 'approved' %}{{ L.chip('Amazon ✓', 'green') }}
+            {% elif r.amazon_status == 'rejected' %}{{ L.chip('Amazon rejected', 'amber') }}
+            {% elif r.amazon_status == 'never_applied' %}{{ L.chip('Amazon: murojaat qilmagan', 'slate') }}{% endif %}
+            {% set inc = [] %}
+            {% if r.includes_bank %}{% set _ = inc.append('bank') %}{% endif %}
+            {% if r.includes_email %}{% set _ = inc.append('email') %}{% endif %}
+            {% if r.includes_phone %}{% set _ = inc.append('tel') %}{% endif %}
+            {% if inc %}{{ L.chip('+ ' ~ inc|join(', '), 'green') }}{% endif %}
           {% else %}
             {% if r.buyer_wants_state or r.state %}{{ L.chip('📍 ' ~ (r.buyer_wants_state or r.state), 'blue') }}{% endif %}
             {% if r.buyer_budget_usd %}<span class="font-bold text-[14px]">{{ r.buyer_budget_usd|money }}</span>{% endif %}
-            {% if r.buyer_min_age_years %}{{ L.chip('min ' ~ r.buyer_min_age_years ~ 'y', 'slate') }}{% endif %}
+            {% if r.buyer_min_age_years %}{{ L.chip('min ' ~ (r.buyer_min_age_years|age), 'slate') }}{% endif %}
             {% if r.buyer_needs_amazon %}{{ L.chip('Amazon kerak', 'slate') }}{% endif %}
           {% endif %}
 
