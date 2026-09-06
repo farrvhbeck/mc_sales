@@ -18,7 +18,7 @@
 
 <div class="bg-white border rounded p-3 mb-4 flex flex-wrap gap-6 items-center">
   <div>
-    <div class="text-[11px] uppercase text-slate-500">Groq bugungi token</div>
+    <div class="text-[11px] uppercase text-slate-500">Groq bugungi token ({{ n_keys }} key)</div>
     <div class="font-semibold tabular-nums">{{ '{:,}'.format(tokens) }} / {{ '{:,}'.format(budget) }}</div>
     <div class="w-48 h-1.5 bg-slate-200 rounded mt-1">
       {% set pct = (tokens / budget * 100) if budget else 0 %}

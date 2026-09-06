@@ -128,12 +128,15 @@ def home(request: Request):
         health = db.get_health(conn)
 
     cfg = db.load_config()
+    from ..classify.groq_client import _load_keys
+    n_keys = max(1, len(_load_keys()))
     for r in top:
         r["fmcsa"] = fmcsa.for_lead(r) if r["side"] == "SELL" else None
 
     return tpl.TemplateResponse(request, "home.html", {
         "kpi": kpi, "top": top, "health": health,
-        "tokens": tokens, "budget": cfg["llm"]["daily_token_budget"], "page": "home",
+        "tokens": tokens, "budget": cfg["llm"]["daily_token_budget"] * n_keys,
+        "n_keys": n_keys, "page": "home",
     })
 
 
@@ -209,7 +212,7 @@ def health(request: Request):
     with db.connect() as conn:
         h = db.get_health(conn)
         usage = [dict(r) for r in conn.execute(
-            "SELECT * FROM llm_usage ORDER BY day DESC LIMIT 14"
+            "SELECT * FROM llm_usage ORDER BY day DESC, key_label, model LIMIT 30"
         )]
         stages = [dict(r) for r in conn.execute(
             "SELECT stage, COUNT(*) n FROM classify_state GROUP BY stage"

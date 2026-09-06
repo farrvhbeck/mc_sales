@@ -49,6 +49,11 @@ cp .env.example .env
 **GROQ_API_KEY** — https://console.groq.com/keys → Google bilan kiring → *Create API Key*.
 Bepul. Key faqat bir marta ko'rsatiladi, darhol nusxa oling.
 
+Limit **akkaunt boshiga** (kuniga ~200K token). Kam kelsa, boshqa Google akkaunt
+bilan yana bitta key olib `.env` ga `GROQ_API_KEY_2=` deb qo'shing — dastur ularni
+navbat bilan ishlatadi va biri tugasa ikkinchisiga o'zi o'tadi. Nechta bo'lsa ham
+bo'ladi (`GROQ_API_KEY_3`, `_4`…).
+
 **Telegram** — Telegram'da `@BotFather` ga yozing → `/newbot` → nom bering → token oladi.
 Keyin **o'z botingizga bir marta "hi" deb yozing** (bu majburiy, aks holda bot sizga
 yoza olmaydi), so'ng brauzerda oching:
@@ -232,8 +237,11 @@ katta. Brauzerda tekshiring.
 **Telegram jim** — `.env` da token/chat_id to'g'rimi? Botga bir marta o'zingiz
 yozganmisiz? `uv run mc notify --dry-run` bilan tekshiring.
 
-**"Kunlik budjet tugadi"** — Groq bepul limiti (kuniga ~200K token). Ertaga o'zi
-davom etadi. Birinchi kuni ko'p ma'lumot bo'lgani uchun normal.
+**"Kunlik budjet tugadi"** — Groq bepul limiti (kuniga ~200K token har bir key
+uchun). Ertaga o'zi davom etadi, yig'ish esa to'xtamaydi — xom ma'lumot saqlanadi
+va `uv run mc ingest-raw` bilan keyin tahlil qilinadi. Tez-tez uchrasa `.env` ga
+yana bitta key qo'shing. Qaysi key qancha sarflaganini `uv run mc stats` yoki
+dashboarddagi **Holat** sahifasi ko'rsatadi.
 
 **Hammasini noldan boshlash:**
 

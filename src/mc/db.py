@@ -137,10 +137,11 @@ CREATE TABLE IF NOT EXISTS matches (
 CREATE TABLE IF NOT EXISTS llm_usage (
     day               TEXT,
     model             TEXT,
+    key_label         TEXT DEFAULT 'k1',   -- qaysi API key ishlatildi
     calls             INTEGER DEFAULT 0,
     prompt_tokens     INTEGER DEFAULT 0,
     completion_tokens INTEGER DEFAULT 0,
-    PRIMARY KEY (day, model)
+    PRIMARY KEY (day, model, key_label)
 );
 
 CREATE TABLE IF NOT EXISTS notified (
@@ -205,6 +206,20 @@ NEW_COLUMNS = [
 def init() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        # llm_usage: PRIMARY KEY (day, model) -> (day, model, key_label).
+        # PK ni ALTER bilan o'zgartirib bo'lmaydi, shuning uchun ko'chiramiz.
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(llm_usage)")}
+        if cols and "key_label" not in cols:
+            conn.execute("ALTER TABLE llm_usage RENAME TO llm_usage_old")
+            conn.executescript(SCHEMA)
+            conn.execute(
+                """INSERT INTO llm_usage (day, model, key_label, calls,
+                                          prompt_tokens, completion_tokens)
+                   SELECT day, model, 'k1', calls, prompt_tokens, completion_tokens
+                   FROM llm_usage_old"""
+            )
+            conn.execute("DROP TABLE llm_usage_old")
+
         # Eski bazani yangi ustunlar bilan to'ldirish
         for table, col, typ in NEW_COLUMNS:
             have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}

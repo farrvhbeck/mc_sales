@@ -273,10 +273,19 @@ def stats():
         for r in conn.execute("SELECT stage, COUNT(*) n FROM classify_state GROUP BY stage"):
             typer.echo(f"  classify/{r['stage']}: {r['n']}")
         for r in conn.execute(
-            "SELECT model, prompt_tokens + completion_tokens t FROM llm_usage WHERE day = ?",
+            "SELECT key_label, model, prompt_tokens + completion_tokens t "
+            "FROM llm_usage WHERE day = ? ORDER BY key_label, model",
             (time.strftime("%Y-%m-%d"),)
         ):
-            typer.echo(f"  bugungi token {r['model']}: {r['t']}")
+            typer.echo(f"  bugungi token [{r['key_label']}] {r['model']}: {r['t']}")
+
+    from .classify.groq_client import GroqClient
+    try:
+        for b in GroqClient(db.load_config()).budget_report():
+            typer.echo(f"  budjet {b['key']}: {b['remaining']:,} qoldi "
+                       f"({b['spent']:,} sarflandi)")
+    except Exception as e:
+        typer.echo(f"  budjet: {e}")
 
 
 def _pidfile(name: str):

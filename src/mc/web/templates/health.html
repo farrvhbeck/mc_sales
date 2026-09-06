@@ -89,10 +89,12 @@
     <h2 class="font-semibold mb-2">Groq sarfi</h2>
     <table class="w-full">
       <tr class="text-slate-500 text-[11px] uppercase">
-        <td>kun</td><td>model</td><td class="text-right">chaqiruv</td><td class="text-right">token</td></tr>
+        <td>kun</td><td>key</td><td>model</td>
+        <td class="text-right">chaqiruv</td><td class="text-right">token</td></tr>
       {% for u in usage %}
       <tr class="border-b">
         <td class="py-1">{{ u.day }}</td>
+        <td class="py-1 font-mono text-slate-500">{{ u.key_label }}</td>
         <td class="py-1">{{ u.model.split('/')[-1] }}</td>
         <td class="py-1 text-right tabular-nums">{{ u.calls }}</td>
         <td class="py-1 text-right tabular-nums">{{ '{:,}'.format(u.prompt_tokens + u.completion_tokens) }}</td>

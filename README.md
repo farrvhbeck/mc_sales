@@ -74,8 +74,11 @@ sarflaydi; busiz javob `max_tokens` ichiga sig'may qoladi va Groq bo'sh javobga
 `json_validate_failed` qaytaradi. `low` bilan token sarfi ~2 barobar kam.
 Bu akkauntda `llama-3.3-70b` va `llama-3.1-8b` **yo'q**; mavjudlari:
 `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `qwen/qwen3.6-27b`, `qwen/qwen3.8-27b`.
-Limit (o'lchangan): **1000 RPD, 8000 TPM, ~200K TPD**. `llm_usage` jadvali kunlik
-sarfni hisoblaydi, 180K da to'xtaydi.
+Limit (o'lchangan): **1000 RPD, 8000 TPM, ~200K TPD** — va bu **akkaunt boshiga**.
+Shuning uchun klient bir nechta key bilan ishlaydi: `.env` da `GROQ_API_KEY`,
+`GROQ_API_KEY_2`, `GROQ_API_KEY_3`… Har bir key alohida hisoblanadi (o'z daqiqalik
+chelagi, o'z kunlik budjeti); biri tugasa yoki 429 bersa avtomatik keyingisiga
+o'tadi. Ikkita key = ikki barobar limit.
 
 **Talab tekshiruvi.** Sheriklarning shartlari `config.yaml` dagi `requirements` blokida:
 MC minimum **6 oy**, sotuvda **bank hisobi + email + telefon** topshirilishi shart,
