@@ -141,6 +141,56 @@ def home(request: Request):
     })
 
 
+@app.get("/api/status")
+def api_status():
+    """Jonli widget uchun. Har necha soniyada so'raladi, shuning uchun yengil."""
+    rs = runs.status()
+    last = rs.get("last") or {}
+
+    with db.connect() as conn:
+        q = lambda s, p=(): conn.execute(s, p).fetchone()[0]
+        queue = {
+            "classify": q("SELECT COUNT(*) FROM classify_state "
+                          "WHERE stage IN ('pending', 'triaged')"),
+            "score": q("SELECT COUNT(*) FROM leads WHERE score IS NULL"),
+            "enrich": q("SELECT COUNT(*) FROM leads WHERE score IS NOT NULL "
+                        "AND (mc_number IS NOT NULL OR dot_number IS NOT NULL)"),
+            "notify": q("SELECT COUNT(*) FROM leads WHERE status = 'new' AND score >= 60 "
+                        "AND lead_id NOT IN (SELECT lead_id FROM notified)"),
+        }
+        totals = {
+            "posts": q("SELECT COUNT(*) FROM posts"),
+            "leads": q("SELECT COUNT(*) FROM leads"),
+            "matches": q("SELECT COUNT(*) FROM matches"),
+        }
+        tokens = q("SELECT COALESCE(SUM(prompt_tokens+completion_tokens),0) "
+                   "FROM llm_usage WHERE day = ?", (time.strftime("%Y-%m-%d"),))
+        steps_done = {}
+        if last.get("run_id"):
+            for r in conn.execute(
+                "SELECT step, status FROM run_steps WHERE run_id = ? ORDER BY step_id",
+                (last["run_id"],),
+            ):
+                steps_done[r["step"]] = r["status"]
+
+    cfg = db.load_config()
+    from ..classify.groq_client import _load_keys
+    budget = cfg["llm"]["daily_token_budget"] * max(1, len(_load_keys()))
+
+    steps = [{"name": s, "label": runs.STEP_LABELS.get(s, s),
+              "status": steps_done.get(s, "pending")} for s in runs.STEP_ORDER]
+
+    return {
+        "state": rs["state"], "label": rs["label"], "detail": rs.get("detail") or "",
+        "step": rs.get("step") or sum(1 for s in steps if s["status"] != "pending"),
+        "step_total": runs.STEP_TOTAL,
+        "steps": steps,
+        "age_seconds": rs.get("age"),
+        "queue": queue, "totals": totals,
+        "tokens": tokens, "budget": budget,
+    }
+
+
 def _status_counts(side: str) -> dict[str, int]:
     with db.connect() as conn:
         rows = conn.execute(
