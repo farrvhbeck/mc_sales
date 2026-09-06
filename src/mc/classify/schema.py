@@ -10,6 +10,18 @@ For each numbered item, output exactly one label:
 Rules:
 - A comment saying "I'll buy it" or "DM me the price" on a sale post is BUY.
 - Someone advertising dispatch, factoring, insurance, ELD, or trucking courses is NOISE.
+- Decide by who ENDS UP OWNING the authority, not by which verb appears.
+  Worked examples:
+    "Selling my 2 year old MC, DM me"            -> SELL (author gives it up)
+    "if someone wants to sell their mc text me"  -> BUY  (author receives it)
+    "Anyone selling an MC? I pay cash"           -> BUY
+    "I have an MC for sale"                      -> SELL
+    "Looking for MC to purchase"                 -> BUY
+  The word "sell" appears in BUY posts all the time - read the direction.
+- LEASING is not selling. "Looking to lease my MC", "lease my authority to drivers",
+  "run under my authority" -> NOISE. Only permanent transfer of the MC/DOT/LLC counts.
+- Brokers or drivers looking for an authority to work UNDER are NOISE, not BUY.
+- "Help you set up a brand new MC" / authority filing services -> NOISE.
 - If unsure, choose NOISE.
 
 Reply with JSON only, in this exact shape:

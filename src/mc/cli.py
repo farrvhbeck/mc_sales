@@ -19,21 +19,54 @@ def init():
 
 
 @app.command()
-def login():
-    """Burner FB akkaunt uchun brauzerni ochadi — qo'lda login qilasiz.
+def login(wait: int = typer.Option(300, help="Login uchun necha soniya kutilsin")):
+    """FB brauzerini ochadi — siz qo'lda kirasiz, dastur o'zi sezadi.
 
-    Login qilgach brauzerni yopmang, terminalga Enter bosing.
+    Terminaldan Enter kutmaydi: `c_user` cookie'si paydo bo'lishini kuzatib turadi,
+    shuning uchun fonda ham ishlaydi.
     """
-    from .collect.browser import browser, is_logged_in
+    from .collect.browser import browser
 
     db.init()
+    deadline = time.time() + wait
+    typer.echo("Brauzer ochilyapti… o'sha oynada Facebook'ga kiring.")
+
     with browser(headless=False) as ctx:
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto("https://www.facebook.com/", timeout=60000)
-        typer.echo("Brauzerda burner akkaunt bilan login qiling, keyin shu yerda Enter bosing.")
-        input()
-        ok = is_logged_in(page)
-    typer.echo("✅ Sessiya saqlandi" if ok else "❌ Login tasdiqlanmadi")
+
+        uid = None
+        while time.time() < deadline:
+            names = {c["name"]: c["value"] for c in ctx.cookies()
+                     if "facebook.com" in c.get("domain", "")}
+            if names.get("c_user") and names.get("xs"):
+                uid = names["c_user"]
+                break
+            time.sleep(2)
+
+        if uid:
+            # Sessiya haqiqatan ishlayotganini tekshiramiz
+            try:
+                page.goto("https://www.facebook.com/", wait_until="domcontentloaded",
+                          timeout=45000)
+                time.sleep(3)
+                alive = "/login" not in page.url and "checkpoint" not in page.url
+            except Exception:
+                alive = False
+        else:
+            alive = False
+
+    with db.connect() as conn:
+        db.set_health(conn, "session", "OK" if alive else "LOGIN YO'Q")
+        if uid:
+            db.set_health(conn, "fb_user_id", uid)
+
+    if alive:
+        typer.echo(f"✅ Sessiya saqlandi (FB user id: {uid})")
+    elif uid:
+        typer.echo(f"⚠️  Cookie bor (id {uid}) lekin sahifa ochilmadi — checkpoint bo'lishi mumkin")
+    else:
+        typer.echo(f"❌ {wait}s ichida login aniqlanmadi. Qayta urinib ko'ring.")
 
 
 @app.command()
@@ -94,6 +127,63 @@ def collect(
         db.set_health(conn, "session", "OK")
 
 
+@app.command("ingest-raw")
+def ingest_raw(group: str = typer.Option(None, help="Faqat shu guruh")):
+    """Saqlangan xom JSON'ni qayta o'qib bazaga yozadi — FB'ga bormasdan.
+
+    Ekstraktor tuzatilganda yoki yaxshilanganda ishlatiladi: hamma narsa
+    `data/raw/` da turibdi, qayta scrape qilish shart emas.
+    """
+    import json
+
+    from . import normalize, runs
+
+    db.init()
+    files = sorted(db.RAW_DIR.glob("*/feed-*.json"))
+    if group:
+        files = [f for f in files if f"-{group}-" in f.name]
+    if not files:
+        typer.echo("Xom fayl topilmadi.")
+        raise typer.Exit(1)
+
+    stats = {"files": len(files), "seen": 0, "new": 0, "skipped_short": 0}
+    cfg = db.load_config()
+    min_chars = cfg["collect"].get("min_text_chars", 25)
+
+    with runs.track("manual") as r, r.step("collect") as st:
+        for path in files:
+            gid = path.name.split("-")[1]
+            try:
+                payloads = json.loads(path.read_text())
+            except (OSError, json.JSONDecodeError) as e:
+                typer.echo(f"  {path.name}: o'qib bo'lmadi ({e})")
+                continue
+
+            found: dict[str, dict] = {}
+            for payload in payloads:
+                for p in normalize.extract_posts(payload, gid):
+                    found.setdefault(p["post_id"], p)
+
+            rel = f"{path.parent.name}/{path.name}"
+            with db.connect() as conn:
+                for p in found.values():
+                    stats["seen"] += 1
+                    if len((p.get("text") or "").strip()) < min_chars:
+                        stats["skipped_short"] += 1
+                        continue
+                    if p["person_id"]:
+                        db.upsert_person(conn, p["person_id"], p.pop("_author_name", None),
+                                         p.pop("_author_url", None))
+                    p.pop("_author_name", None)
+                    p.pop("_author_url", None)
+                    p["raw_path"] = rel
+                    if db.upsert_post(conn, p):
+                        stats["new"] += 1
+            typer.echo(f"  {path.name}: {len(found)} post")
+        st["result"] = stats
+    typer.echo(stats)
+
+
 @app.command()
 def classify(limit: int = 200):
     """Yig'ilgan matnlarni BUY/SELL/NOISE ga ajratadi va faktlarni chiqaradi."""
@@ -126,7 +216,7 @@ def score():
 
     db.init()
     with runs.track("manual") as r, r.step("score") as st:
-        st["result"] = scoring.run()
+        st["result"] = scoring.run() | scoring.dedupe()
     typer.echo(st["result"])
 
 
@@ -393,7 +483,7 @@ def _pipeline():
         ("collect", _collect),
         ("classify", lambda: classify_run(limit=200, verbose=False)),
         ("enrich", lambda: enrich_pending(limit=100, verbose=False)),
-        ("score", scoring.run),
+        ("score", lambda: scoring.run() | scoring.dedupe()),
         ("match", matching.run),
         ("notify", telegram.run),
     ]

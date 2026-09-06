@@ -240,3 +240,45 @@ def run(limit: int = 5000) -> dict:
             updates,
         )
     return stats
+
+
+def dedupe() -> dict:
+    """Bir odamning bir xil matnli takroriy postlarini yashiradi.
+
+    Sotuvchilar bir e'lonni har kuni qayta joylaydi. Eng yangisi qoladi,
+    qolganlari `duplicate` statusiga o'tadi (o'chirilmaydi).
+    """
+    import hashlib
+    import re as _re
+
+    def key(text: str) -> str:
+        norm = _re.sub(r"\W+", " ", (text or "").lower()).strip()
+        return hashlib.sha1(norm.encode()).hexdigest()
+
+    with db.connect() as conn:
+        rows = [dict(r) for r in conn.execute(
+            """SELECT l.lead_id, l.person_id, l.status,
+                      COALESCE(p.created_at, p.first_seen_at) AS ts, p.text
+               FROM leads l JOIN posts p ON p.post_id = l.source_id
+               WHERE l.source_type = 'post' AND l.status IN ('new', 'duplicate')"""
+        )]
+
+    seen: dict[tuple, dict] = {}
+    dupes: list[int] = []
+    for r in sorted(rows, key=lambda x: -(x["ts"] or 0)):
+        k = (r["person_id"], key(r["text"]))
+        if k in seen:
+            dupes.append(r["lead_id"])
+        else:
+            seen[k] = r
+
+    keep = [r["lead_id"] for r in seen.values()]
+    with db.connect() as conn:
+        if dupes:
+            conn.executemany("UPDATE leads SET status = 'duplicate' WHERE lead_id = ?",
+                             [(i,) for i in dupes])
+        if keep:
+            conn.executemany(
+                "UPDATE leads SET status = 'new' WHERE lead_id = ? AND status = 'duplicate'",
+                [(i,) for i in keep])
+    return {"checked": len(rows), "duplicates": len(dupes)}

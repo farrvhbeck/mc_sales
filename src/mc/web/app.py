@@ -31,7 +31,7 @@ LEFT JOIN comments c  ON c.comment_id = l.source_id AND l.source_type = 'comment
 LEFT JOIN posts    sp ON sp.post_id   = l.source_post_id
 """
 
-STATUSES = ["new", "contacted", "qualified", "matched", "closed", "junk"]
+STATUSES = ["new", "contacted", "qualified", "matched", "closed", "duplicate", "junk"]
 
 
 def _ago(ts: float | None) -> str:
@@ -73,7 +73,7 @@ def _rows(side: str, args: dict) -> list[dict]:
         where.append("l.status = ?")
         params.append(args["status"])
     else:
-        where.append("l.status != 'junk'")
+        where.append("l.status NOT IN ('junk', 'duplicate')")
     if args.get("fresh"):
         where.append("COALESCE(p.created_at, c.created_at, p.first_seen_at, c.first_seen_at) > ?")
         params.append(time.time() - 24 * 3600)
@@ -86,8 +86,12 @@ def _rows(side: str, args: dict) -> list[dict]:
         where.append("(COALESCE(p.text, c.text) LIKE ? OR pe.name LIKE ?)")
         params += [f"%{args['q']}%", f"%{args['q']}%"]
 
+    # Talabga mos leadlar har doim tepada: sherik "MOS" ni ko'rib pastga
+    # tushishiga to'g'ri kelmasin.
+    fit_rank = ("CASE l.fit_verdict WHEN 'pass' THEN 0 WHEN 'ask' THEN 1 "
+                "WHEN 'fail' THEN 3 ELSE 2 END")
     order = {"fresh": "ts DESC", "price": "l.price_usd DESC"}.get(
-        args.get("sort", ""), "l.score DESC"
+        args.get("sort", ""), f"{fit_rank}, l.score DESC"
     )
     sql = f"{LEAD_SELECT} WHERE {' AND '.join(where)} ORDER BY {order} NULLS LAST LIMIT 300"
 
@@ -139,7 +143,7 @@ def _status_counts(side: str) -> dict[str, int]:
             "SELECT status, COUNT(*) n FROM leads WHERE side = ? GROUP BY status", (side,)
         ).fetchall()
     counts = {r["status"]: r["n"] for r in rows}
-    counts["_all"] = sum(n for s, n in counts.items() if s != "junk")
+    counts["_all"] = sum(n for s, n in counts.items() if s not in ("junk", "duplicate"))
     return counts
 
 

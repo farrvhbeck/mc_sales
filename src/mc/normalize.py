@@ -61,18 +61,38 @@ def _int(v: Any) -> int | None:
     return None
 
 
+def _time_by_post(payload: Any) -> dict[str, int]:
+    """post_id -> creation_time.
+
+    Real FB javobida vaqt post matni bilan BIR tugunda emas: matn `story` tugunida
+    (`post_id` + `message.text`), vaqt esa uni o'rab turgan FeedUnit tugunida
+    (`creation_time`). Shuning uchun FeedUnit'lardan pastga qarab bog'laymiz.
+    (2026-09-06 da real guruh javobida tekshirilgan.)
+    """
+    out: dict[str, int] = {}
+    for node in walk(payload):
+        created = _int(node.get("creation_time"))
+        if not created or created < 1_000_000_000:
+            continue
+        for sub in walk(node):
+            pid = sub.get("post_id")
+            if pid is None:
+                continue
+            pid = str(pid)
+            if DIGITS.match(pid):
+                out.setdefault(pid, created)
+    return out
+
+
 def extract_posts(payload: Any, group_id: str) -> list[dict]:
     """Post'ga o'xshash tugunlarni chiqaradi.
 
-    Signal: `creation_time` (unix) + matn + raqamli `post_id`.
+    Signal: raqamli `post_id` + `message.text`. Vaqt alohida bog'lanadi.
     """
+    times = _time_by_post(payload)
     out: dict[str, dict] = {}
     for node in walk(payload):
-        created = _int(node.get("creation_time") or node.get("created_time"))
-        if not created or created < 1_000_000_000:
-            continue
-
-        pid = node.get("post_id") or node.get("legacy_story_hideable_id") or node.get("id")
+        pid = node.get("post_id") or node.get("legacy_story_hideable_id")
         pid = str(pid) if pid is not None else None
         if not pid or not DIGITS.match(pid):
             continue
@@ -81,6 +101,7 @@ def extract_posts(payload: Any, group_id: str) -> list[dict]:
         if not text or not text.strip():
             continue
 
+        created = times.get(pid) or _int(node.get("creation_time"))
         person_id, name, url = _actor(node)
 
         fb = node.get("feedback") or {}
@@ -100,8 +121,9 @@ def extract_posts(payload: Any, group_id: str) -> list[dict]:
             "group_id": group_id,
             "person_id": person_id,
             "text": text.strip(),
-            "permalink": f"https://www.facebook.com/groups/{group_id}/posts/{pid}/",
-            "created_at": float(created),
+            "permalink": node.get("wwwURL")
+                or f"https://www.facebook.com/groups/{group_id}/posts/{pid}/",
+            "created_at": float(created) if created else None,
             "n_comments": n_comments,
             "n_reactions": n_reactions,
             "raw_path": None,
