@@ -99,7 +99,8 @@
       stale: "var(--orange)", stopped: "var(--gray)", failed: "var(--red)",
       dead: "var(--red)", never: "var(--label-3)",
     };
-    const ICON = { ok: "check", warn: "alert-triangle", error: "x", pending: "circle" };
+    const ICON = { ok: "check", warn: "alert-triangle", error: "x",
+                   pending: "circle", never: "circle-dashed" };
 
     const key = "live-open";
     let open = localStorage.getItem(key) !== "0";
@@ -116,8 +117,9 @@
     const ago = s =>
       s == null ? "" :
       s < 90    ? "just now" :
-      s < 5400  ? Math.round(s / 60) + " min ago" :
-                  Math.round(s / 3600) + " h ago";
+      s < 5400  ? Math.round(s / 60) + " min" :
+      s < 86400 ? Math.round(s / 3600) + " h" :
+                  Math.round(s / 86400) + " d";
 
     function ring(step, total) {
       const r = 8, c = 2 * Math.PI * r, pct = total ? step / total : 0;
@@ -142,7 +144,8 @@
         ? ring(d.step, d.step_total)
         : `<span class="meta">${d.totals.leads} leads</span>`;
 
-      detail.textContent = d.detail || ago(d.age_seconds);
+      detail.textContent = d.detail ||
+        (d.age_seconds != null ? "last full cycle " + ago(d.age_seconds) + " ago" : "");
       detail.hidden = !detail.textContent;
 
       steps.innerHTML = d.steps.map((s, i) => {
@@ -154,7 +157,12 @@
         const ic = active
           ? '<i data-lucide="loader-2" class="spin" style="width:13px;height:13px"></i>'
           : `<i data-lucide="${ICON[s.status] || "circle"}" style="width:13px;height:13px"></i>`;
-        return `<div class="live-step ${cls}"><span class="ic">${ic}</span>${s.label}</div>`;
+        // Har bosqich o'zining oxirgi natijasini ko'rsatadi, shuning uchun
+        // qachonligini ham yozamiz -- aks holda "✓" qachonlikdir bo'lib qoladi.
+        const when = active ? "" : (s.status === "never" ? "never" : ago(s.age_seconds));
+        return `<div class="live-step ${cls}" ${s.error ? `title="${s.error}"` : ""}>
+          <span class="ic">${ic}</span><span style="flex:1">${s.label}</span>
+          <span class="meta" style="font-size:11px">${when}</span></div>`;
       }).join("");
 
       const Q = [["classify", "Waiting to analyse"], ["score", "Waiting to score"],

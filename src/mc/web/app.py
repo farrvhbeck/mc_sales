@@ -233,20 +233,39 @@ def api_status():
         }
         tokens = q("SELECT COALESCE(SUM(prompt_tokens+completion_tokens),0) "
                    "FROM llm_usage WHERE day = ?", (time.strftime("%Y-%m-%d"),))
+        # Har bir bosqichning ENG OXIRGI natijasi -- oxirgi yurishniki emas.
+        # Qo'lda bitta buyruq (masalan `mc match`) yurgizilsa, o'sha yurishda
+        # faqat bitta bosqich bo'ladi va qolganlari "hech qachon ishlamagan"
+        # bo'lib ko'rinardi, holbuki ular oldinroq muvaffaqiyatli o'tgan.
         steps_done = {}
-        if last.get("run_id"):
-            for r in conn.execute(
-                "SELECT step, status FROM run_steps WHERE run_id = ? ORDER BY step_id",
-                (last["run_id"],),
-            ):
-                steps_done[r["step"]] = r["status"]
+        for r in conn.execute(
+            """SELECT rs.step, rs.status, rs.finished_at, rs.error
+               FROM run_steps rs
+               WHERE rs.step_id = (SELECT MAX(step_id) FROM run_steps
+                                   WHERE step = rs.step)"""
+        ):
+            steps_done[r["step"]] = {
+                "status": r["status"],
+                "at": r["finished_at"],
+                "error": r["error"],
+            }
 
     cfg = db.load_config()
     from ..classify.groq_client import _load_keys
     budget = cfg["llm"]["daily_token_budget"] * max(1, len(_load_keys()))
 
-    steps = [{"name": s, "label": runs.STEP_LABELS.get(s, s),
-              "status": steps_done.get(s, "pending")} for s in runs.STEP_ORDER]
+    now = time.time()
+    steps = []
+    for name in runs.STEP_ORDER:
+        info = steps_done.get(name) or {}
+        at = info.get("at")
+        steps.append({
+            "name": name,
+            "label": runs.STEP_LABELS.get(name, name),
+            "status": info.get("status", "never"),
+            "age_seconds": (now - at) if at else None,
+            "error": info.get("error"),
+        })
 
     return {
         "state": rs["state"], "label": rs["label"], "detail": rs.get("detail") or "",
