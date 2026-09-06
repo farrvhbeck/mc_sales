@@ -48,8 +48,24 @@
         else %}{{ (rs.age // 3600)|int }} soat oldin{% endif %}</span>
     {% endif %}
     {% if rs.detail %}<span class="opacity-75 truncate">— {{ rs.detail }}</span>{% endif %}
+
+    {% if rs.state == 'running' and rs.step %}
+      {# 6 ta bosqichning qaysi biridamiz #}
+      <span class="flex items-center gap-1 ml-1">
+        {% for i in range(1, rs.step_total + 1) %}
+          <span class="h-1.5 rounded-full transition-all
+                       {{ 'w-6 bg-blue-500' if i == rs.step
+                          else ('w-3 bg-blue-300' if i < rs.step else 'w-3 bg-blue-200/50') }}"
+                title="{{ i }}/{{ rs.step_total }}"></span>
+        {% endfor %}
+      </span>
+    {% endif %}
+
     <span class="ml-auto opacity-50 text-[12px]">tafsilot →</span>
   </a>
+  {% if rs.state == 'running' %}
+    <meta http-equiv="refresh" content="10">
+  {% endif %}
 </div>
 
 <main class="max-w-[1600px] mx-auto p-4">

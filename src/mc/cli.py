@@ -100,8 +100,11 @@ def collect(
         with runs.track("manual") as r, r.step("collect") as st:
             out = {}
             with browser(headless=cfg["collect"]["headless"]) as ctx:
-                for g in groups:
-                    typer.echo(f"→ {g['name']} ({days} kun)")
+                for gi, g in enumerate(groups, 1):
+                    typer.echo(f"→ [{gi}/{len(groups)}] {g['name']} ({days} kun)")
+                    with db.connect() as conn:
+                        db.set_health(conn, "collect_progress",
+                                      f"guruh {gi}/{len(groups)}: {g['name']}")
                     res = sweep_feed(ctx, g["id"], cfg, since_ts, dry_run=dry_run, full=full)
                     out[g["id"]] = res
                     typer.echo(f"  feed: {res}")
@@ -130,6 +133,7 @@ def collect(
 
     with db.connect() as conn:
         db.set_health(conn, "session", "OK")
+        db.set_health(conn, "collect_progress", "")
 
 
 @app.command("ingest-raw")
@@ -566,8 +570,13 @@ def _pipeline():
         since_ts = time.time() - cfg["collect"]["backfill_days"] * 86400
         out = {}
         with browser(headless=cfg["collect"]["headless"]) as ctx:
-            for g in cfg["groups"]:
+            for gi, g in enumerate(cfg["groups"], 1):
+                with db.connect() as conn:
+                    db.set_health(conn, "collect_progress",
+                                  f"guruh {gi}/{len(cfg['groups'])}: {g['name']}")
                 out[g["id"]] = sweep_feed(ctx, g["id"], cfg, since_ts)
+        with db.connect() as conn:
+            db.set_health(conn, "collect_progress", "")
             if cfg["collect"].get("comments", False):
                 n = 0
                 for p in pending_posts(cfg["collect"]["max_posts_per_run"]):

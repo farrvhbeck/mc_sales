@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections import Counter
 
 from . import db
 from .enrich import fmcsa
@@ -127,17 +128,16 @@ def run(limit_pairs: int = 2000) -> dict:
             for r in conn.execute("SELECT person_id, post_id FROM comments")
         }
 
+    max_per_seller = cfg["match"].get("max_per_seller", 3)
     fm_cache: dict[int, dict | None] = {}
-    rows = []
-    stats = {"buyers": len(buyers), "sellers": len(sellers), "pairs": 0, "blocked": 0}
+    stats = {"buyers": len(buyers), "sellers": len(sellers),
+             "pairs": 0, "blocked": 0, "candidates": 0, "trimmed": 0}
 
+    # 1) Barcha mumkin bo'lgan juftliklarni ballaymiz
+    candidates = []
     for buyer in buyers:
-        found = 0
         for seller in sellers:
-            if found >= max_per_buyer or len(rows) >= limit_pairs:
-                break
-            reason = _blocked(buyer, seller, commented)
-            if reason:
+            if _blocked(buyer, seller, commented):
                 stats["blocked"] += 1
                 continue
             if seller["lead_id"] not in fm_cache:
@@ -147,22 +147,45 @@ def run(limit_pairs: int = 2000) -> dict:
             if not fit:
                 continue
             score, reasons = fit
-            rows.append(
-                (buyer["lead_id"], seller["lead_id"], score,
-                 json.dumps(reasons, ensure_ascii=False),
-                 _intro(buyer, seller, fm), time.time())
-            )
-            found += 1
-            stats["pairs"] += 1
+            candidates.append((score, reasons, buyer, seller, fm))
+    stats["candidates"] = len(candidates)
+
+    # 2) Eng yaxshisidan boshlab tanlaymiz, IKKALA tomonga ham chegara qo'yib.
+    #    Sotuvchi bir marta sotadi -- uni 24 ta xaridorga taklif qilish
+    #    bitta sotuv uchun 24 ta ish va spamga o'xshash yozishma degani.
+    per_buyer: dict[int, int] = {}
+    per_seller: dict[int, int] = {}
+    alt_buyers = Counter(s["lead_id"] for _, _, _, s, _ in candidates)
+    alt_sellers = Counter(b["lead_id"] for _, _, b, _, _ in candidates)
+
+    rows = []
+    for score, reasons, buyer, seller, fm in sorted(candidates, key=lambda c: -c[0]):
+        if len(rows) >= limit_pairs:
+            break
+        b_id, s_id = buyer["lead_id"], seller["lead_id"]
+        if per_buyer.get(b_id, 0) >= max_per_buyer or per_seller.get(s_id, 0) >= max_per_seller:
+            stats["trimmed"] += 1
+            continue
+        per_buyer[b_id] = per_buyer.get(b_id, 0) + 1
+        per_seller[s_id] = per_seller.get(s_id, 0) + 1
+        rows.append(
+            (b_id, s_id, score, json.dumps(reasons, ensure_ascii=False),
+             _intro(buyer, seller, fm), time.time(),
+             alt_buyers[s_id] - 1, alt_sellers[b_id] - 1)
+        )
+        stats["pairs"] += 1
 
     with db.connect() as conn:
+        # Har safar yangidan hisoblanadi -- eskirgan juftliklar qolib ketmasin
+        conn.execute("DELETE FROM matches WHERE status = 'new'")
         conn.executemany(
             """INSERT INTO matches (buyer_lead_id, seller_lead_id, score, reasons,
-                                    intro_text, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)
+                                    intro_text, created_at, alt_buyers, alt_sellers)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(buyer_lead_id, seller_lead_id) DO UPDATE SET
                  score = excluded.score, reasons = excluded.reasons,
-                 intro_text = excluded.intro_text""",
+                 intro_text = excluded.intro_text,
+                 alt_buyers = excluded.alt_buyers, alt_sellers = excluded.alt_sellers""",
             rows,
         )
     return stats

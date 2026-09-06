@@ -1,10 +1,12 @@
-{% macro tier(score) %}{{ 'hot' if score >= 75 else ('warm' if score >= 55 else 'cold') }}{% endmacro %}
+{# score hali hisoblanmagan bo'lishi mumkin (yangi lead, ball bosqichi hali yurmagan) #}
+{% macro tier(score) %}{% set s = score or 0 %}{{ 'hot' if s >= 75 else ('warm' if s >= 55 else 'cold') }}{% endmacro %}
 
 {% macro badge(score) %}
   {% set t = tier(score)|trim %}
   {% set c = {'hot': 'bg-emerald-600', 'warm': 'bg-amber-500', 'cold': 'bg-slate-400'}[t] %}
-  <span class="{{ c }} text-white font-bold rounded-md w-11 h-11 flex flex-col items-center justify-center leading-none shrink-0">
-    <span class="text-[15px] tabular-nums">{{ score or 0 }}</span>
+  <span class="{{ 'bg-slate-300' if score is none else c }} text-white font-bold rounded-md w-11 h-11 flex flex-col items-center justify-center leading-none shrink-0"
+        {% if score is none %}title="Hali hisoblanmagan"{% endif %}>
+    <span class="text-[15px] tabular-nums">{{ '…' if score is none else score }}</span>
     <span class="text-[9px] font-medium opacity-80 uppercase tracking-wide">ball</span>
   </span>
 {% endmacro %}

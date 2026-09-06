@@ -1,9 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
-<p class="text-slate-600 mb-3">
-  Xaridor o'zi comment yozgan post bilan <b>hech qachon</b> juftlanmaydi — u uni allaqachon ko'rgan.
-  Bu yerda faqat u ko'rmagan sotuvchilar.
-</p>
+<div class="bg-white border border-slate-200 rounded-lg p-3 mb-3 text-slate-600">
+  Har bir <b>sotuvchi</b> eng mos <b>3 ta</b> xaridorga, har bir <b>xaridor</b> eng mos
+  <b>5 ta</b> sotuvchiga taklif qilinadi. Sotuvchi bir marta sotadi — uni o'nlab
+  xaridorga yozish ortiqcha ish va spamga o'xshaydi.
+  Chegaralar <code class="bg-slate-100 px-1 rounded">config.yaml</code> da
+  (<code>max_per_seller</code>, <code>max_per_buyer</code>).
+  <br>
+  Xaridor o'zi comment yozgan post bilan hech qachon juftlanmaydi — u uni allaqachon ko'rgan.
+</div>
 
 <div class="space-y-2">
 {% for m in rows %}
@@ -14,23 +19,27 @@
     <div class="flex-1 min-w-0">
       <div class="flex flex-wrap gap-4">
         <div>
-          <div class="text-[11px] uppercase text-blue-700">Xaridor · {{ m.buyer_score }}</div>
+          <div class="text-[11px] uppercase text-blue-700">Xaridor · {{ m.buyer_score }} ball</div>
           <div class="font-semibold">{{ m.buyer_name or '—' }}</div>
           <div class="text-slate-500">
             {{ m.buyer_wants_state or '' }}
             {% if m.buyer_budget_usd %}· byudjet {{ m.buyer_budget_usd|money }}{% endif %}
           </div>
           {% if m.buyer_link %}<a href="{{ m.buyer_link }}" target="_blank" class="text-blue-600 underline">post↗</a>{% endif %}
+          {% if m.alt_sellers %}<div class="text-slate-400 text-[11px]">
+            bu xaridorga yana {{ m.alt_sellers }} ta sotuvchi mos kelgan</div>{% endif %}
         </div>
         <div class="text-2xl text-slate-300 self-center">→</div>
         <div>
-          <div class="text-[11px] uppercase text-emerald-700">Sotuvchi · {{ m.seller_score }}</div>
+          <div class="text-[11px] uppercase text-emerald-700">Sotuvchi · {{ m.seller_score }} ball</div>
           <div class="font-semibold">{{ m.seller_name or '—' }}</div>
           <div class="text-slate-500">
             MC {{ m.mc_number or '—' }} / DOT {{ m.dot_number or '—' }}
             {% if m.price_usd %}· {{ m.price_usd|money }}{% endif %}
           </div>
           {% if m.seller_link %}<a href="{{ m.seller_link }}" target="_blank" class="text-blue-600 underline">post↗</a>{% endif %}
+          {% if m.alt_buyers %}<div class="text-slate-400 text-[11px]">
+            bu sotuvchiga yana {{ m.alt_buyers }} ta xaridor mos kelgan</div>{% endif %}
         </div>
       </div>
 

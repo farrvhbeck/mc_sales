@@ -13,6 +13,10 @@ from contextlib import contextmanager
 
 from . import db
 
+# To'liq siklning bosqichlari, tartibi bilan. Progress shu ro'yxatdan hisoblanadi.
+STEP_ORDER = ["collect", "classify", "enrich", "score", "match", "notify"]
+STEP_TOTAL = len(STEP_ORDER)
+
 STEP_LABELS = {
     "collect": "Yig'ish",
     "classify": "Tahlil",
@@ -179,8 +183,11 @@ def status() -> dict:
                 "age": age, "last": last}
 
     if last["status"] == "running":
+        cur = _progress(last["run_id"])
         return {"state": "running", "label": "Hozir ishlayapti",
-                "detail": _running_step(last["run_id"]), "age": age, "last": last}
+                "detail": cur["detail"], "step": cur["index"],
+                "step_total": STEP_TOTAL, "step_label": cur["label"],
+                "age": age, "last": last}
 
     if last["status"] == "failed":
         return {"state": "failed", "label": "Oxirgi yurish muvaffaqiyatsiz",
@@ -204,10 +211,29 @@ def status() -> dict:
             "age": age, "last": last}
 
 
-def _running_step(run_id: int) -> str:
+def _progress(run_id: int) -> dict:
+    """Hozir qaysi bosqich, nechanchisi, va ichida nima bo'layapti."""
     with db.connect() as conn:
         row = conn.execute(
             "SELECT step FROM run_steps WHERE run_id = ? AND status = 'running' "
             "ORDER BY step_id DESC LIMIT 1", (run_id,)
         ).fetchone()
-    return STEP_LABELS.get(row["step"], row["step"]) if row else ""
+        done = conn.execute(
+            "SELECT COUNT(*) n FROM run_steps WHERE run_id = ? AND status != 'running'",
+            (run_id,)
+        ).fetchone()["n"]
+        sub = conn.execute(
+            "SELECT value FROM health WHERE key = 'collect_progress'"
+        ).fetchone()
+
+    if not row:
+        return {"index": done, "label": "", "detail": ""}
+
+    step = row["step"]
+    index = (STEP_ORDER.index(step) + 1) if step in STEP_ORDER else done + 1
+    label = STEP_LABELS.get(step, step)
+    detail = f"{index}/{STEP_TOTAL} · {label}"
+    # Yig'ish uzoq davom etadi -- qaysi guruhda ekanini ham ko'rsatamiz
+    if step == "collect" and sub and sub["value"]:
+        detail += f" — {sub['value']}"
+    return {"index": index, "label": label, "detail": detail}

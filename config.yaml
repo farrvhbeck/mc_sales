@@ -84,7 +84,9 @@ notify:
 
 match:
   price_tolerance: 1.2     # narx <= byudjet * 1.2
-  max_per_buyer: 5
+  max_per_buyer: 5         # bitta xaridorga nechta sotuvchi taklif qilinsin
+  # Sotuvchi bir marta sotadi -- uni o'nlab xaridorga taklif qilish ortiqcha ish.
+  max_per_seller: 3
 
 # Sheriklarning MC uchun talablari (Sarvar, 2026-09-06)
 requirements:

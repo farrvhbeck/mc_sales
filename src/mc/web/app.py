@@ -35,14 +35,15 @@ STATUSES = ["new", "contacted", "qualified", "matched", "closed", "duplicate", "
 
 
 def _ago(ts: float | None) -> str:
+    """Postning yoshi. To'liq so'z bilan -- "15k" pul summasiga o'xshab ketardi."""
     if not ts:
         return "—"
     h = (time.time() - ts) / 3600
     if h < 1:
-        return f"{int(h * 60)}d"
+        return f"{max(1, int(h * 60))} daq"
     if h < 48:
-        return f"{int(h)}s"
-    return f"{int(h / 24)}k"
+        return f"{int(h)} soat"
+    return f"{int(h / 24)} kun"
 
 
 tpl.env.filters["ago"] = _ago

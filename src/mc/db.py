@@ -129,6 +129,8 @@ CREATE TABLE IF NOT EXISTS matches (
     score          INTEGER,
     reasons        TEXT,
     intro_text     TEXT,
+    alt_buyers     INTEGER,     -- shu sotuvchiga yana nechta xaridor mos keldi
+    alt_sellers    INTEGER,     -- shu xaridorga yana nechta sotuvchi mos keldi
     status         TEXT DEFAULT 'new',
     created_at     REAL,
     UNIQUE(buyer_lead_id, seller_lead_id)
@@ -200,6 +202,8 @@ NEW_COLUMNS = [
     ("leads", "fit_reasons", "TEXT"),
     ("leads", "fit_missing", "TEXT"),
     ("posts", "group_name", "TEXT"),
+    ("matches", "alt_buyers", "INTEGER"),
+    ("matches", "alt_sellers", "INTEGER"),
 ]
 
 
