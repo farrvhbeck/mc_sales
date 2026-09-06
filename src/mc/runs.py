@@ -18,12 +18,12 @@ STEP_ORDER = ["collect", "classify", "enrich", "score", "match", "notify"]
 STEP_TOTAL = len(STEP_ORDER)
 
 STEP_LABELS = {
-    "collect": "Yig'ish",
-    "classify": "Tahlil",
-    "enrich": "FMCSA",
-    "score": "Ball",
+    "collect": "Collect",
+    "classify": "Analyse",
+    "enrich": "Verify",
+    "score": "Score",
     "match": "Match",
-    "notify": "Telegram",
+    "notify": "Notify",
 }
 
 
@@ -70,7 +70,7 @@ class Run:
             if n_err:
                 self.failed += 1
                 status = "warn"
-                err = f"{n_err} ta element qayta ishlanmadi"
+                err = f"{n_err} items could not be processed"
             else:
                 self.ok += 1
             with db.connect() as conn:
@@ -169,8 +169,8 @@ def status() -> dict:
         ).fetchone()
 
     if not last:
-        return {"state": "never", "label": "Hali ishga tushmagan",
-                "detail": "`uv run mc loop` ni ishga tushiring"}
+        return {"state": "never", "label": "Never run",
+                "detail": "Start it with: uv run mc start"}
 
     last = dict(last)
     last_ok = dict(last_ok) if last_ok else None
@@ -178,36 +178,36 @@ def status() -> dict:
     sess = (session["value"] if session else "") or ""
 
     if sess.startswith("DEAD"):
-        return {"state": "dead", "label": "Facebook sessiya tushdi",
-                "detail": "`uv run mc login` bilan qayta kiring",
+        return {"state": "dead", "label": "Facebook session lost",
+                "detail": "Sign in again: uv run mc login",
                 "age": age, "last": last}
 
     if last["status"] == "running":
         cur = _progress(last["run_id"])
-        return {"state": "running", "label": "Hozir ishlayapti",
+        return {"state": "running", "label": "Running",
                 "detail": cur["detail"], "step": cur["index"],
                 "step_total": STEP_TOTAL, "step_label": cur["label"],
                 "age": age, "last": last}
 
     if last["status"] == "failed":
-        return {"state": "failed", "label": "Oxirgi yurish muvaffaqiyatsiz",
+        return {"state": "failed", "label": "Last run failed",
                 "detail": last["last_error"] or "", "age": age, "last": last}
 
     # Eskirganmi? 3 sikl o'tsa muammo bor
     if age is not None and age > interval * 3:
-        return {"state": "stale", "label": "Yangilanmayapti",
-                "detail": "Dvigatel to'xtagan bo'lishi mumkin — `uv run mc loop`",
+        return {"state": "stale", "label": "Not updating",
+                "detail": "The engine may have stopped: uv run mc start",
                 "age": age, "last": last}
 
     if last["status"] == "partial":
-        return {"state": "partial", "label": "Qisman bajarildi",
+        return {"state": "partial", "label": "Finished with problems",
                 "detail": last["last_error"] or "", "age": age, "last": last}
 
     if last["status"] == "stopped":
-        return {"state": "stopped", "label": "Qo'lda to'xtatilgan",
-                "detail": "`uv run mc loop` bilan davom ettiring", "age": age, "last": last}
+        return {"state": "stopped", "label": "Stopped",
+                "detail": "Resume with: uv run mc start", "age": age, "last": last}
 
-    return {"state": "ok", "label": "Ishlayapti", "detail": "",
+    return {"state": "ok", "label": "Up to date", "detail": "",
             "age": age, "last": last}
 
 

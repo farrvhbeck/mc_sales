@@ -1,197 +1,68 @@
 <!doctype html>
-<html lang="uz">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}MC Lead Engine{% endblock %}</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<style>
-  body { font-feature-settings: "tnum" 0; }
-  details > summary { list-style: none; }
-  details > summary::-webkit-details-marker { display: none; }
-  button[disabled] { opacity: .45; cursor: default; }
-</style>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>{% block title %}MC Leads{% endblock %} · MC Leads</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚛</text></svg>">
 </head>
-<body class="bg-slate-100 text-slate-900 text-[13px] antialiased">
+<body>
 
-<nav class="bg-slate-900 text-slate-300 sticky top-0 z-20 shadow">
-  <div class="max-w-[1600px] mx-auto px-4 flex items-center gap-1 h-12">
-    <a href="/" class="font-semibold text-white mr-5 tracking-tight">MC&nbsp;Lead&nbsp;Engine</a>
-    {% for href, label, key in [('/', 'Dashboard', 'home'), ('/sellers', 'Sotuvchilar', 'sellers'),
-                                ('/buyers', 'Xaridorlar', 'buyers'), ('/matches', 'Match', 'matches'),
-                                ('/health', 'Holat', 'health')] %}
-      <a href="{{ href }}"
-         class="px-3 py-1.5 rounded font-medium transition-colors
-                {{ 'bg-slate-700 text-white' if page == key else 'hover:bg-slate-800 hover:text-white' }}">{{ label }}</a>
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="brand">
+      <span class="brand-mark"><i data-lucide="truck" style="width:13px;height:13px"></i></span>
+      MC Leads
+    </a>
+    {% for href, label, key in [('/', 'Dashboard', 'home'), ('/sellers', 'Sellers', 'sellers'),
+                                ('/buyers', 'Buyers', 'buyers'), ('/matches', 'Matches', 'matches'),
+                                ('/health', 'Activity', 'health')] %}
+      <a href="{{ href }}" class="tab" {% if page == key %}aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
   </div>
 </nav>
 
-{% set rs = run_status() %}
-{% set tone = {
-     'ok':      ('bg-emerald-50 border-emerald-200 text-emerald-900', '●', 'text-emerald-600'),
-     'running': ('bg-blue-50 border-blue-200 text-blue-900',          '◍', 'text-blue-600'),
-     'partial': ('bg-amber-50 border-amber-200 text-amber-900',       '◐', 'text-amber-600'),
-     'stale':   ('bg-amber-50 border-amber-200 text-amber-900',       '▲', 'text-amber-600'),
-     'stopped': ('bg-slate-100 border-slate-300 text-slate-700',      '■', 'text-slate-500'),
-     'failed':  ('bg-red-50 border-red-200 text-red-900',             '✕', 'text-red-600'),
-     'dead':    ('bg-red-50 border-red-200 text-red-900',             '✕', 'text-red-600'),
-     'never':   ('bg-slate-100 border-slate-300 text-slate-700',      '○', 'text-slate-400'),
-   }[rs.state] %}
-<div class="max-w-[1600px] mx-auto px-4 pt-3">
-  <a href="/health" class="flex flex-wrap items-center gap-x-3 gap-y-1 border rounded-lg px-3 py-2 {{ tone[0] }} hover:brightness-[0.98]">
-    <span class="{{ tone[2] }} text-[15px] leading-none">{{ tone[1] }}</span>
-    <span class="font-semibold">{{ rs.label }}</span>
-    {% if rs.age is defined and rs.age is not none %}
-      <span class="opacity-75">oxirgi yangilanish
-        {% if rs.age < 90 %}hozirgina{% elif rs.age < 5400 %}{{ (rs.age // 60)|int }} daqiqa oldin{%
-        else %}{{ (rs.age // 3600)|int }} soat oldin{% endif %}</span>
-    {% endif %}
-    {% if rs.detail %}<span class="opacity-75 truncate">— {{ rs.detail }}</span>{% endif %}
+<main>{% block content %}{% endblock %}</main>
 
-    {% if rs.state == 'running' and rs.step %}
-      {# 6 ta bosqichning qaysi biridamiz #}
-      <span class="flex items-center gap-1 ml-1">
-        {% for i in range(1, rs.step_total + 1) %}
-          <span class="h-1.5 rounded-full transition-all
-                       {{ 'w-6 bg-blue-500' if i == rs.step
-                          else ('w-3 bg-blue-300' if i < rs.step else 'w-3 bg-blue-200/50') }}"
-                title="{{ i }}/{{ rs.step_total }}"></span>
-        {% endfor %}
-      </span>
-    {% endif %}
-
-    <span class="ml-auto opacity-50 text-[12px]">tafsilot →</span>
-  </a>
-
-</div>
-
-<main class="max-w-[1600px] mx-auto p-4">
-  {% block content %}{% endblock %}
-</main>
-
-
-{# ---------- Jonli indikator (o'ng past burchak) ---------- #}
-<div id="live" class="fixed bottom-4 right-4 z-40 w-[300px] select-none">
-  <div class="bg-white/95 backdrop-blur border border-slate-300 rounded-xl shadow-lg overflow-hidden">
-
-    <button id="live-head" class="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 text-left">
-      <span id="live-dot" class="w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0"></span>
-      <span id="live-label" class="font-semibold text-[13px] truncate flex-1">…</span>
-      <span id="live-ring" class="shrink-0"></span>
-      <span id="live-caret" class="text-slate-400 text-[11px]">▾</span>
+{# ---------- Detail sheet ---------- #}
+<div id="sheet-scrim" class="sheet-scrim"></div>
+<aside id="sheet" class="sheet" aria-hidden="true" aria-label="Lead detail">
+  <div class="sheet-head">
+    <button class="btn btn-icon btn-quiet" data-close-sheet aria-label="Close">
+      <i data-lucide="x" style="width:17px;height:17px"></i>
     </button>
+    <strong style="font-size:15px">Lead detail</strong>
+  </div>
+  <div class="sheet-body" id="sheet-content"></div>
+</aside>
 
-    <div id="live-body" class="border-t border-slate-200 px-3 py-2 space-y-2">
-      <div id="live-detail" class="text-[12px] text-slate-500"></div>
-
-      <div id="live-steps" class="space-y-1"></div>
-
-      <div id="live-queue" class="pt-1 border-t border-slate-200 space-y-0.5 text-[12px]"></div>
-
-      <div class="pt-1 border-t border-slate-200">
-        <div class="flex justify-between text-[11px] text-slate-500">
-          <span>Groq bugun</span><span id="live-tok" class="tabular-nums"></span>
-        </div>
-        <div class="h-1.5 bg-slate-200 rounded mt-1">
-          <div id="live-tokbar" class="h-1.5 rounded bg-emerald-500" style="width:0%"></div>
-        </div>
+{# ---------- Live activity ---------- #}
+<div class="live" id="live">
+  <div class="live-card">
+    <button class="live-head" id="live-head" aria-expanded="true" aria-controls="live-body">
+      <span id="live-dot" style="width:9px;height:9px;border-radius:50%;background:var(--label-3);flex:none"></span>
+      <span id="live-label" style="font-weight:600;font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Connecting…</span>
+      <span id="live-ring" style="display:flex;align-items:center"></span>
+      <i data-lucide="chevron-up" id="live-caret" style="width:14px;height:14px;color:var(--label-3);transition:transform .25s var(--ease)"></i>
+    </button>
+    <div class="live-body" id="live-body">
+      <div id="live-detail" class="meta"></div>
+      <div class="live-steps" id="live-steps"></div>
+      <div id="live-queue" style="border-top:.5px solid var(--separator);padding-top:7px"></div>
+      <div style="border-top:.5px solid var(--separator);padding-top:8px;margin-top:7px">
+        <div class="live-q meta"><span>Groq today</span><span id="live-tok" class="n"></span></div>
+        <div class="bar" style="margin-top:5px"><i id="live-bar" style="width:0%"></i></div>
       </div>
     </div>
   </div>
 </div>
 
-<script>
-(() => {
-  const $ = id => document.getElementById(id);
-  const TONE = {
-    ok:      ['bg-emerald-500', 'text-emerald-700'],
-    running: ['bg-blue-500 animate-pulse', 'text-blue-700'],
-    partial: ['bg-amber-500', 'text-amber-700'],
-    stale:   ['bg-amber-500', 'text-amber-700'],
-    stopped: ['bg-slate-400', 'text-slate-600'],
-    failed:  ['bg-red-500', 'text-red-700'],
-    dead:    ['bg-red-500', 'text-red-700'],
-    never:   ['bg-slate-300', 'text-slate-500'],
-  };
-  const MARK = {ok: '✓', warn: '!', error: '✕', running: '', pending: '·'};
-
-  // Yopilgan holatni eslab qolamiz
-  let open = localStorage.getItem('live-open') !== '0';
-  const apply = () => {
-    $('live-body').style.display = open ? '' : 'none';
-    $('live-caret').textContent = open ? '▾' : '▴';
-  };
-  $('live-head').onclick = () => {
-    open = !open; localStorage.setItem('live-open', open ? '1' : '0'); apply();
-  };
-  apply();
-
-  function ring(step, total, colour) {
-    const r = 9, c = 2 * Math.PI * r, pct = total ? step / total : 0;
-    return `<svg width="24" height="24" viewBox="0 0 24 24" class="-rotate-90">
-      <circle cx="12" cy="12" r="${r}" fill="none" stroke="#e2e8f0" stroke-width="3"/>
-      <circle cx="12" cy="12" r="${r}" fill="none" stroke="${colour}" stroke-width="3"
-        stroke-linecap="round" stroke-dasharray="${c}"
-        stroke-dashoffset="${c * (1 - pct)}"/></svg>`;
-  }
-
-  async function tick() {
-    let d;
-    try { d = await (await fetch('/api/status')).json(); }
-    catch { $('live-label').textContent = 'Aloqa yo‘q'; return; }
-
-    const tone = TONE[d.state] || TONE.never;
-    $('live-dot').className = 'w-2.5 h-2.5 rounded-full shrink-0 ' + tone[0];
-    $('live-label').className = 'font-semibold text-[13px] truncate flex-1 ' + tone[1];
-    $('live-label').textContent = d.label;
-
-    const running = d.state === 'running';
-    $('live-ring').innerHTML = running
-      ? ring(d.step, d.step_total, '#3b82f6')
-      : `<span class="text-[11px] text-slate-400 tabular-nums">${d.totals.leads} lead</span>`;
-
-    $('live-detail').textContent = d.detail ||
-      (d.age_seconds != null
-        ? 'oxirgi yangilanish ' + (d.age_seconds < 90 ? 'hozirgina'
-            : d.age_seconds < 5400 ? Math.round(d.age_seconds / 60) + ' daqiqa oldin'
-            : Math.round(d.age_seconds / 3600) + ' soat oldin')
-        : '');
-
-    $('live-steps').innerHTML = d.steps.map((s, i) => {
-      const cur = running && (i + 1) === d.step;
-      const col = s.status === 'ok' ? 'text-emerald-600'
-        : s.status === 'warn' ? 'text-amber-600'
-        : s.status === 'error' ? 'text-red-600'
-        : cur ? 'text-blue-600' : 'text-slate-300';
-      const spin = cur ? '<span class="inline-block animate-spin">◠</span>' : (MARK[s.status] || '·');
-      return `<div class="flex items-center gap-2 text-[12px] ${cur ? 'font-semibold' : ''}">
-        <span class="w-4 text-center ${col}">${spin}</span>
-        <span class="${cur ? 'text-slate-900' : 'text-slate-500'}">${i + 1}. ${s.label}</span>
-      </div>`;
-    }).join('');
-
-    const Q = [['classify', 'Tahlil kutmoqda'], ['score', 'Ballanmagan'],
-               ['notify', 'Telegramga tayyor']];
-    $('live-queue').innerHTML = Q.map(([k, lbl]) => {
-      const n = d.queue[k] || 0;
-      return `<div class="flex justify-between ${n ? 'text-slate-700' : 'text-slate-400'}">
-        <span>${lbl}</span><span class="tabular-nums font-medium">${n}</span></div>`;
-    }).join('') +
-      `<div class="flex justify-between text-slate-400 pt-0.5">
-         <span>Post / lead / match</span>
-         <span class="tabular-nums">${d.totals.posts} · ${d.totals.leads} · ${d.totals.matches}</span></div>`;
-
-    const pct = d.budget ? Math.min(100, d.tokens / d.budget * 100) : 0;
-    $('live-tok').textContent = d.tokens.toLocaleString() + ' / ' + d.budget.toLocaleString();
-    $('live-tokbar').style.width = pct + '%';
-    $('live-tokbar').className = 'h-1.5 rounded ' + (pct > 85 ? 'bg-red-500' : 'bg-emerald-500');
-
-    // Ishlayotganda tez-tez, tinch turganda kamroq so'raymiz
-    setTimeout(tick, running ? 3000 : 15000);
-  }
-  tick();
-})();
-</script>
+<script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js"></script>
+<script src="/static/app.js" defer></script>
 </body>
 </html>

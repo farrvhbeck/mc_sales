@@ -1,40 +1,64 @@
 {% extends "base.html" %}
 {% import "_lead.html" as L %}
+{% block title %}{{ p.name if p else 'Person' }}{% endblock %}
+
 {% block content %}
 {% if not p %}
-  <div class="bg-white border rounded p-8 text-center text-slate-500">Topilmadi.</div>
+  <div class="group"><div class="empty">
+    <i data-lucide="user-x" style="width:34px;height:34px"></i>
+    <h3>No such person</h3></div></div>
 {% else %}
-<div class="bg-white border rounded p-4 mb-3">
-  <div class="flex items-center gap-3 flex-wrap">
-    <h1 class="text-xl font-bold">{{ p.name or p.person_id }}</h1>
+
+<a class="btn btn-quiet" href="javascript:history.back()" style="margin-bottom:12px">
+  <i data-lucide="chevron-left" style="width:15px;height:15px"></i> Back</a>
+
+<div class="card" style="margin-bottom:20px">
+  <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div style="width:46px;height:46px;border-radius:50%;background:var(--fill);
+                display:grid;place-items:center;flex:none">
+      <i data-lucide="user" style="width:22px;height:22px;color:var(--label-3)"></i></div>
+    <div style="flex:1;min-width:0">
+      <h1 style="font-size:22px;font-weight:700;letter-spacing:-.03em;margin:0">{{ p.name or p.person_id }}</h1>
+      <div class="meta">First seen {{ p.first_seen|ago }} ago</div>
+    </div>
     {% if p.is_suspected_reseller %}
-      <span class="bg-orange-100 text-orange-800 rounded px-2 py-0.5">serial sotuvchi</span>{% endif %}
-    {% if p.profile_url %}<a href="{{ p.profile_url }}" target="_blank" class="text-blue-600 underline">FB profil↗</a>{% endif %}
+      <span class="chip chip-orange"><i data-lucide="repeat"></i>Reseller</span>{% endif %}
+    {% if p.profile_url %}
+      <a class="btn" href="{{ p.profile_url }}" target="_blank" rel="noopener">
+        <i data-lucide="external-link" style="width:14px;height:14px"></i> Profile</a>{% endif %}
   </div>
-  <div class="mt-2 flex gap-6 text-slate-600">
-    <span>Sotuv posti: <b class="text-emerald-700">{{ p.n_sell }}</b></span>
-    <span>Xarid posti: <b class="text-blue-700">{{ p.n_buy }}</b></span>
-    <span>Birinchi ko'rilgan: {{ p.first_seen|ago }} oldin</span>
+
+  <div style="display:flex;gap:26px;margin-top:14px">
+    <div><div class="k meta">Selling posts</div>
+         <div style="font-size:22px;font-weight:700;color:var(--green)">{{ p.n_sell }}</div></div>
+    <div><div class="k meta">Buying posts</div>
+         <div style="font-size:22px;font-weight:700;color:var(--blue)">{{ p.n_buy }}</div></div>
   </div>
 </div>
 
-<h2 class="font-semibold mb-2">Tarix ({{ leads|length }})</h2>
-<div class="space-y-1">
+<p class="section-label">History · {{ leads|length }}</p>
+
+<div class="group stagger">
 {% for r in leads %}
-  <div class="bg-white border rounded p-2 flex gap-3 items-start">
-    {{ L.badge(r.score) }}
-    <span class="text-[11px] rounded px-1.5 py-0.5 shrink-0
-      {{ 'bg-emerald-100 text-emerald-800' if r.side == 'SELL' else 'bg-blue-100 text-blue-800' }}">{{ r.side }}</span>
-    <div class="flex-1 min-w-0">
-      <div class="text-slate-700">{{ (r.text or '')[:400] }}</div>
-      <div class="text-slate-400 mt-0.5">
-        {{ r.ts|ago }} · {{ r.source_type }} · {{ r.status }}
-        {% if r.price_usd %} · {{ r.price_usd|money }}{% endif %}
-        {% if r.mc_number %} · MC {{ r.mc_number }}{% endif %}
+  <div class="row">
+    {{ L.ring(r.score) }}
+    <div style="flex:1;min-width:0">
+      <div class="facts">
+        <span class="chip {{ 'chip-green' if r.side == 'SELL' else 'chip-blue' }}">
+          {{ 'Selling' if r.side == 'SELL' else 'Buying' }}</span>
+        {% if r.price_usd %}<span class="money">{{ r.price_usd|money }}</span>{% endif %}
+        {% if r.mc_number %}<span class="chip"><span class="mono">MC {{ r.mc_number }}</span></span>{% endif %}
+        <span class="chip">{{ r.status }}</span>
+        <span class="meta" style="margin-left:auto">{{ r.ts|ago }}</span>
       </div>
+      <div class="snippet" style="-webkit-line-clamp:3">{{ r.text }}</div>
     </div>
-    {% if r.permalink %}<a href="{{ r.permalink }}" target="_blank" class="border rounded px-2 py-1">FB↗</a>{% endif %}
+    {% if r.permalink %}
+      <a class="btn btn-icon btn-quiet" href="{{ r.permalink }}" target="_blank" rel="noopener" title="Open post">
+        <i data-lucide="external-link" style="width:15px;height:15px"></i></a>{% endif %}
   </div>
+{% else %}
+  <div class="empty"><h3>No leads recorded for this person</h3></div>
 {% endfor %}
 </div>
 {% endif %}

@@ -2,190 +2,194 @@
 {% import "_lead.html" as L %}
 {% set back = request.url.path ~ ('?' ~ request.url.query if request.url.query else '') %}
 {% set is_sell = side == 'SELL' %}
-{% block title %}{{ 'Sotuvchilar' if is_sell else 'Xaridorlar' }}{% endblock %}
+{% set adv = args.group or args.amazon or args.package or args.price_min or args.price_max
+             or args.min_age or args.range == 'custom' %}
+{% block title %}{{ 'Sellers' if is_sell else 'Buyers' }}{% endblock %}
 
 {% block content %}
 
-{# --- status tablari --- #}
-{% set tabs = [('', 'Hammasi', counts._all or 0),
-               ('new', 'Yangi', counts.new or 0),
-               ('contacted', "Bog'landim", counts.contacted or 0),
-               ('qualified', 'Sifatli', counts.qualified or 0),
-               ('matched', 'Ulandi', counts.matched or 0),
-               ('closed', 'Yopildi', counts.closed or 0),
-               ('duplicate', 'Takror', counts.duplicate or 0),
-               ('junk', 'Tashlangan', counts.junk or 0)] %}
-<div class="flex flex-wrap items-center gap-1 mb-3 border-b border-slate-300 pb-2">
-  {% for val, label, n in tabs %}
-    {% set active = (args.status or '') == val %}
-    <a href="{{ request.url.path }}?status={{ val }}"
-       class="px-3 py-1.5 rounded-t font-medium
-              {{ 'bg-white border border-b-white -mb-[9px] text-slate-900' if active
-                 else 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/60' }}
-              {{ 'text-red-600' if val == 'junk' and not active else '' }}">
-      {{ label }}
-      <span class="ml-1 text-[11px] tabular-nums {{ 'text-slate-400' if not active else 'text-slate-500' }}">{{ n }}</span>
-    </a>
+<div class="title-row">
+  <h1 class="large">{{ 'Sellers' if is_sell else 'Buyers' }}</h1>
+  <span class="title-count">{{ rows|length }} shown</span>
+</div>
+
+{# Status is the primary axis of the work — a segmented control, not a dropdown. #}
+<div class="segmented" role="tablist">
+  {% for val in ['', 'new', 'contacted', 'qualified', 'matched', 'closed', 'duplicate', 'junk'] %}
+    {% set n = (counts._all if val == '' else counts.get(val)) or 0 %}
+    <a role="tab" href="{{ request.url.path }}?status={{ val }}"
+       {% if (args.status or '') == val %}aria-current="true"{% endif %}>
+      {{ status_labels[val] }}<span class="n">{{ n }}</span></a>
   {% endfor %}
 </div>
 
-{# --- filtrlar --- #}
-<form method="get" class="bg-white border border-slate-200 rounded-lg p-3 mb-3 flex flex-wrap gap-3 items-end shadow-sm">
+<form method="get" id="filters">
   <input type="hidden" name="status" value="{{ args.status or '' }}">
 
-  <label class="flex flex-col gap-1">
-    <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Min ball</span>
-    <input name="min_score" type="number" value="{{ args.min_score or '' }}" placeholder="0"
-           class="border border-slate-300 rounded px-2 py-1.5 w-20 focus:outline-none focus:ring-2 focus:ring-blue-500"></label>
+  <div class="toolbar">
+    <label class="field grow">
+      <i data-lucide="search" style="width:15px;height:15px"></i>
+      <input name="q" value="{{ args.q or '' }}" placeholder="Search text or name">
+    </label>
 
-  <label class="flex flex-col gap-1">
-    <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Shtat</span>
-    <input name="state" value="{{ args.state or '' }}" placeholder="FL" maxlength="2"
-           class="border border-slate-300 rounded px-2 py-1.5 w-16 uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"></label>
+    <label class="field select-wrap">
+      <i data-lucide="clock" style="width:15px;height:15px"></i>
+      <select name="range" id="range-select">
+        {% for val, label, _ in ranges %}
+          <option value="{{ val }}" {{ 'selected' if (args.range or '') == val }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
 
-  {% if is_sell %}
-  <label class="flex flex-col gap-1">
-    <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Talab</span>
-    <select name="fit" class="border border-slate-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-      <option value="">— hammasi</option>
-      <option value="pass" {{ 'selected' if args.fit == 'pass' }}>Mos</option>
-      <option value="ask"  {{ 'selected' if args.fit == 'ask' }}>So'rash kerak</option>
-      <option value="fail" {{ 'selected' if args.fit == 'fail' }}>Mos emas</option>
-    </select></label>
-  {% endif %}
+    <label class="field select-wrap">
+      <i data-lucide="arrow-up-down" style="width:15px;height:15px"></i>
+      <select name="sort">
+        <option value="">Best first</option>
+        <option value="fresh"     {{ 'selected' if args.sort == 'fresh' }}>Newest</option>
+        <option value="oldest"    {{ 'selected' if args.sort == 'oldest' }}>Oldest</option>
+        <option value="price"     {{ 'selected' if args.sort == 'price' }}>Price high to low</option>
+        <option value="price_asc" {{ 'selected' if args.sort == 'price_asc' }}>Price low to high</option>
+        {% if is_sell %}<option value="age" {{ 'selected' if args.sort == 'age' }}>Oldest authority</option>{% endif %}
+      </select>
+    </label>
 
-  <label class="flex flex-col gap-1">
-    <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Saralash</span>
-    <select name="sort" class="border border-slate-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-      <option value="">Ball bo'yicha</option>
-      <option value="fresh" {{ 'selected' if args.sort == 'fresh' }}>Yangilik bo'yicha</option>
-      <option value="price" {{ 'selected' if args.sort == 'price' }}>Narx bo'yicha</option>
-    </select></label>
+    {% if is_sell %}
+    <label class="field select-wrap">
+      <i data-lucide="clipboard-check" style="width:15px;height:15px"></i>
+      <select name="fit">
+        <option value="">Any spec</option>
+        <option value="pass" {{ 'selected' if args.fit == 'pass' }}>Meets spec</option>
+        <option value="ask"  {{ 'selected' if args.fit == 'ask' }}>Ask first</option>
+        <option value="fail" {{ 'selected' if args.fit == 'fail' }}>Off spec</option>
+      </select>
+    </label>
+    {% endif %}
 
-  <label class="flex flex-col gap-1 flex-1 min-w-[200px]">
-    <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Qidiruv</span>
-    <input name="q" value="{{ args.q or '' }}" placeholder="matn yoki ism…"
-           class="border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"></label>
-
-  <div class="flex flex-col gap-1.5 pb-1">
-    <label class="flex items-center gap-1.5 cursor-pointer">
-      <input type="checkbox" name="fresh" value="1" {{ 'checked' if args.fresh }} class="rounded"> Oxirgi 24 soat</label>
-    <label class="flex items-center gap-1.5 cursor-pointer">
-      <input type="checkbox" name="has_contact" value="1" {{ 'checked' if args.has_contact }} class="rounded"> Kontakti bor</label>
+    <button class="btn btn-primary"><i data-lucide="filter" style="width:14px;height:14px"></i> Apply</button>
+    <button type="button" class="btn" id="more-btn" aria-expanded="false" aria-controls="more-filters">
+      <i data-lucide="sliders-horizontal" style="width:14px;height:14px"></i> More</button>
+    {% if args.q or args.range or args.sort or args.fit or adv or args.state or args.min_score or args.has_contact %}
+      <a class="btn btn-quiet" href="{{ request.url.path }}?status={{ args.status or '' }}">Reset</a>
+    {% endif %}
   </div>
 
-  <button class="bg-slate-800 hover:bg-slate-700 text-white rounded px-4 py-1.5 font-medium">Filtr</button>
-  {% if args.min_score or args.state or args.q or args.fresh or args.has_contact or args.sort or args.fit %}
-    <a href="{{ request.url.path }}?status={{ args.status or '' }}"
-       class="text-slate-500 hover:text-slate-900 underline py-1.5">tozalash</a>
-  {% endif %}
-  <span class="ml-auto text-slate-500 py-1.5"><b class="text-slate-900">{{ rows|length }}</b> ta</span>
-</form>
+  <div id="more-filters" class="card" style="margin-bottom:14px" data-force-open="{{ '1' if adv else '0' }}" hidden>
+    <div class="toolbar" style="margin:0">
 
-{# --- ro'yxat --- #}
-<div class="space-y-2">
-{% for r in rows %}
-  {% set t = L.tier(r.score)|trim %}
-  {% set rail = {'hot': 'border-l-emerald-500', 'warm': 'border-l-amber-400', 'cold': 'border-l-slate-300'}[t] %}
-  <div class="bg-white border border-slate-200 border-l-4 {{ rail }} rounded-lg shadow-sm hover:shadow
-              {{ 'opacity-60' if r.status == 'junk' else '' }}">
-    <div class="flex gap-3 p-3">
-
-      {{ L.badge(r.score) }}
-
-      <div class="min-w-0 flex-1">
-        {# 1-qator: kim + asosiy faktlar #}
-        <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <a href="/people/{{ r.person_id }}" class="font-semibold text-[14px] hover:underline">{{ r.person_name or "noma'lum" }}</a>
-
-          {% if r.ts|isnew %}
-            <span class="w-1.5 h-1.5 rounded-full bg-blue-500" title="2 soatdan yangi"></span>{% endif %}
-          {% if r.source_type == 'comment' %}{{ L.chip('💬 comment', 'violet') }}{% endif %}
-          {% if r.is_suspected_reseller %}{{ L.chip('serial · ' ~ r.n_sell, 'orange', 'Bu odam ko\'p marta sotmoqda') }}{% endif %}
-
-          {{ L.fit_badge(r) }}
-          {{ L.fmcsa_chip(r.fmcsa, r) }}
-
-          {% if is_sell %}
-            {% if r.price_usd %}<span class="font-bold text-[14px]">{{ r.price_usd|money }}</span>{% endif %}
-            {% if not r.fmcsa and r.authority_age_years %}{{ L.chip((r.authority_age_years|age) ~ " (da'vo)", 'slate') }}{% endif %}
-            {% if r.amazon_status == 'approved' %}{{ L.chip('Amazon ✓', 'green') }}
-            {% elif r.amazon_status == 'rejected' %}{{ L.chip('Amazon rejected', 'amber') }}
-            {% elif r.amazon_status == 'never_applied' %}{{ L.chip('Amazon: murojaat qilmagan', 'slate') }}{% endif %}
-            {% set inc = [] %}
-            {% if r.includes_bank %}{% set _ = inc.append('bank') %}{% endif %}
-            {% if r.includes_email %}{% set _ = inc.append('email') %}{% endif %}
-            {% if r.includes_phone %}{% set _ = inc.append('tel') %}{% endif %}
-            {% if inc %}{{ L.chip('+ ' ~ inc|join(', '), 'green') }}{% endif %}
-          {% else %}
-            {% if r.buyer_wants_state or r.state %}{{ L.chip('📍 ' ~ (r.buyer_wants_state or r.state), 'blue') }}{% endif %}
-            {% if r.buyer_budget_usd %}<span class="font-bold text-[14px]">{{ r.buyer_budget_usd|money }}</span>{% endif %}
-            {% if r.buyer_min_age_years %}{{ L.chip('min ' ~ (r.buyer_min_age_years|age), 'slate') }}{% endif %}
-            {% if r.buyer_needs_amazon %}{{ L.chip('Amazon kerak', 'slate') }}{% endif %}
-          {% endif %}
-
-          {% if r.contact_value %}
-            <span class="bg-blue-600 text-white rounded px-2 py-0.5 text-[12px] font-medium select-all">{{ r.contact_value }}</span>
-          {% endif %}
-
-          <span class="ml-auto text-slate-400 text-[12px] whitespace-nowrap">{{ r.ts|ago }}</span>
-        </div>
-
-        {# 2-qator: matn #}
-        <div class="text-slate-600 mt-1 line-clamp-2">{{ (r.text or '')[:280] }}</div>
-
-        {{ L.detail(r, back) }}
+      <div id="custom-range" hidden style="display:flex;gap:8px;align-items:center">
+        <label class="field"><span class="meta">From</span>
+          <input type="date" name="from" value="{{ args.get('from', '') }}"></label>
+        <label class="field"><span class="meta">To</span>
+          <input type="date" name="to" value="{{ args.to or '' }}"></label>
       </div>
 
-      {# amallar #}
-      <div class="flex flex-col items-end gap-1.5 shrink-0">
-        <div class="flex gap-1">
-          {% if r.status == 'junk' %}
-            <form method="post" action="/lead/{{ r.lead_id }}/status">
-              <input type="hidden" name="back" value="{{ back }}"><input type="hidden" name="status" value="new">
-              <button class="border border-slate-300 rounded px-2.5 py-1.5 hover:bg-slate-50 font-medium">↺ Qaytarish</button>
-            </form>
-          {% else %}
-            <form method="post" action="/lead/{{ r.lead_id }}/status">
-              <input type="hidden" name="back" value="{{ back }}"><input type="hidden" name="status" value="contacted">
-              <button class="border border-emerald-300 text-emerald-800 bg-emerald-50 rounded px-2.5 py-1.5 hover:bg-emerald-100 font-medium"
-                      {{ 'disabled' if r.status == 'contacted' }}>✓ Bog'landim</button>
+      <label class="field tiny"><span class="meta">Min score</span>
+        <input type="number" name="min_score" min="0" max="100" value="{{ args.min_score or '' }}" placeholder="0"></label>
+
+      <label class="field tiny"><span class="meta">State</span>
+        <input name="state" maxlength="2" style="text-transform:uppercase;width:44px"
+               value="{{ args.state or '' }}" placeholder="FL"></label>
+
+      <label class="field"><span class="meta">{{ 'Price' if is_sell else 'Budget' }}</span>
+        <input type="number" name="price_min" value="{{ args.price_min or '' }}" placeholder="min" style="width:72px">
+        <span class="meta">–</span>
+        <input type="number" name="price_max" value="{{ args.price_max or '' }}" placeholder="max" style="width:72px"></label>
+
+      <label class="field tiny"><span class="meta">Age ≥ mo</span>
+        <input type="number" name="min_age" value="{{ args.min_age or '' }}" placeholder="6"></label>
+
+      <label class="field select-wrap">
+        <i data-lucide="package" style="width:15px;height:15px"></i>
+        <select name="amazon">
+          <option value="">Amazon: any</option>
+          <option value="approved"      {{ 'selected' if args.amazon == 'approved' }}>Approved</option>
+          <option value="rejected"      {{ 'selected' if args.amazon == 'rejected' }}>Denied</option>
+          <option value="never_applied" {{ 'selected' if args.amazon == 'never_applied' }}>Never applied</option>
+        </select></label>
+
+      <label class="field select-wrap">
+        <i data-lucide="users" style="width:15px;height:15px"></i>
+        <select name="group">
+          <option value="">All groups</option>
+          {% for gid, gname in groups.items() %}
+            <option value="{{ gid }}" {{ 'selected' if args.group == gid }}>{{ gname }}</option>
+          {% endfor %}
+        </select></label>
+
+      <label class="switch">
+        <input type="checkbox" name="has_contact" value="1" {{ 'checked' if args.has_contact }}>
+        <span class="track"></span> Has phone or email</label>
+
+      {% if is_sell %}
+      <label class="switch">
+        <input type="checkbox" name="package" value="1" {{ 'checked' if args.package }}>
+        <span class="track"></span> Bank, email and phone included</label>
+      {% endif %}
+    </div>
+  </div>
+</form>
+
+{% if rows %}
+<div class="group stagger">
+  {% for r in rows %}
+    <div class="row tappable {{ 'dim' if r.status in ('junk', 'duplicate') }}" data-detail="{{ r.lead_id }}">
+      {{ L.ring(r.score) }}
+
+      <div style="flex:1;min-width:0">
+        <div class="facts">
+          <span class="name">{{ r.person_name or 'Unknown' }}</span>
+          {{ L.facts(r, is_sell) }}
+          <span class="meta" style="margin-left:auto">{{ r.ts|ago }}</span>
+        </div>
+        <div class="snippet">{{ r.text }}</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:6px;flex:none" onclick="event.stopPropagation()">
+        {% if r.status == 'junk' %}
+          <form method="post" action="/lead/{{ r.lead_id }}/status">
+            <input type="hidden" name="back" value="{{ back }}"><input type="hidden" name="status" value="new">
+            <button class="btn"><i data-lucide="undo-2" style="width:14px;height:14px"></i> Restore</button>
+          </form>
+        {% else %}
+          <form method="post" action="/lead/{{ r.lead_id }}/status" style="display:flex;gap:6px">
+            <input type="hidden" name="back" value="{{ back }}"><input type="hidden" name="status" value="contacted">
+            <button class="btn btn-good" {{ 'disabled' if r.status == 'contacted' }}>
+              <i data-lucide="check" style="width:14px;height:14px"></i> Contacted</button>
+          </form>
+          <div style="display:flex;gap:6px">
+            <form method="post" action="/lead/{{ r.lead_id }}/status" class="field select-wrap" style="padding:4px 9px">
+              <input type="hidden" name="back" value="{{ back }}">
+              <select name="status" onchange="this.form.submit()" aria-label="Change status">
+                {% for st in statuses %}
+                  <option value="{{ st }}" {{ 'selected' if r.status == st }}>{{ status_labels[st] }}</option>
+                {% endfor %}
+              </select>
             </form>
             <form method="post" action="/lead/{{ r.lead_id }}/status">
               <input type="hidden" name="back" value="{{ back }}"><input type="hidden" name="status" value="junk">
-              <button class="border border-slate-300 text-slate-500 rounded px-2.5 py-1.5 hover:bg-red-50 hover:text-red-700 hover:border-red-300"
-                      title="Tashlash — keyin 'Tashlangan' tabidan qaytarasiz">✕</button>
+              <button class="btn btn-icon btn-bad" title="Discard">
+                <i data-lucide="x" style="width:15px;height:15px"></i></button>
             </form>
-          {% endif %}
-        </div>
-
-        <div class="flex gap-1">
-          <form method="post" action="/lead/{{ r.lead_id }}/status">
-            <input type="hidden" name="back" value="{{ back }}">
-            <select name="status" onchange="this.form.submit()"
-                    class="border border-slate-300 rounded px-1.5 py-1.5 bg-white text-slate-600">
-              {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if r.status == s }}>{{ s }}</option>{% endfor %}
-            </select>
-          </form>
-          {% if r.permalink %}
-            <a href="{{ r.permalink }}" target="_blank"
-               class="border border-slate-300 rounded px-2.5 py-1.5 hover:bg-slate-50 whitespace-nowrap" title="Facebook'da ochish">FB ↗</a>
-          {% endif %}
-        </div>
+          </div>
+        {% endif %}
       </div>
     </div>
-  </div>
+    {{ L.detail(r, back, is_sell) }}
+  {% endfor %}
+</div>
 {% else %}
-  <div class="bg-white border border-slate-200 rounded-lg p-12 text-center">
-    <div class="text-slate-400 text-[15px] mb-2">Bu filtrga mos lead yo'q.</div>
+<div class="group">
+  <div class="empty">
+    <i data-lucide="inbox" style="width:34px;height:34px"></i>
+    <h3>Nothing matches these filters</h3>
     {% if args.status == 'junk' %}
-      <div class="text-slate-500">Hali hech narsa tashlanmagan.</div>
+      <p>Nothing has been discarded yet.</p>
+    {% elif args.q or adv or args.range %}
+      <p>Widen the time range or clear a filter.</p>
     {% else %}
-      <div class="text-slate-500">
-        Yig'ishni boshlash: <code class="bg-slate-100 px-1.5 py-0.5 rounded">uv run mc loop</code>
-      </div>
+      <p>The engine collects every 15 minutes. Start it with <code>uv run mc start</code>.</p>
     {% endif %}
   </div>
-{% endfor %}
 </div>
+{% endif %}
 {% endblock %}

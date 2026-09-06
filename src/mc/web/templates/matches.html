@@ -1,71 +1,104 @@
 {% extends "base.html" %}
+{% import "_lead.html" as L %}
+{% block title %}Matches{% endblock %}
+
 {% block content %}
-<div class="bg-white border border-slate-200 rounded-lg p-3 mb-3 text-slate-600">
-  Har bir <b>sotuvchi</b> eng mos <b>3 ta</b> xaridorga, har bir <b>xaridor</b> eng mos
-  <b>5 ta</b> sotuvchiga taklif qilinadi. Sotuvchi bir marta sotadi — uni o'nlab
-  xaridorga yozish ortiqcha ish va spamga o'xshaydi.
-  Chegaralar <code class="bg-slate-100 px-1 rounded">config.yaml</code> da
-  (<code>max_per_seller</code>, <code>max_per_buyer</code>).
-  <br>
-  Xaridor o'zi comment yozgan post bilan hech qachon juftlanmaydi — u uni allaqachon ko'rgan.
+
+<div class="title-row">
+  <h1 class="large">Matches</h1>
+  <span class="title-count">{{ groups|length }} authorities · {{ n_pairs }} introductions</span>
 </div>
 
-<div class="space-y-2">
-{% for m in rows %}
-<div class="bg-white border rounded p-3">
-  <div class="flex gap-3 items-start">
-    <span class="bg-violet-600 text-white font-bold rounded px-2 py-1 tabular-nums">{{ m.score }}</span>
+<p style="color:var(--label-2);max-width:64ch;margin:0 0 18px">
+  Grouped by the authority for sale, because that is the scarce side — buyers outnumber
+  sellers about three to one. Work down a card: the buyers under it are already ranked.
+  Nobody is shown a post they commented on themselves.
+</p>
 
-    <div class="flex-1 min-w-0">
-      <div class="flex flex-wrap gap-4">
-        <div>
-          <div class="text-[11px] uppercase text-blue-700">Xaridor · {{ m.buyer_score }} ball</div>
-          <div class="font-semibold">{{ m.buyer_name or '—' }}</div>
-          <div class="text-slate-500">
-            {{ m.buyer_wants_state or '' }}
-            {% if m.buyer_budget_usd %}· byudjet {{ m.buyer_budget_usd|money }}{% endif %}
-          </div>
-          {% if m.buyer_link %}<a href="{{ m.buyer_link }}" target="_blank" class="text-blue-600 underline">post↗</a>{% endif %}
-          {% if m.alt_sellers %}<div class="text-slate-400 text-[11px]">
-            bu xaridorga yana {{ m.alt_sellers }} ta sotuvchi mos kelgan</div>{% endif %}
+{% if groups %}
+<div class="stagger">
+{% for g in groups %}
+  <div class="group" style="margin-bottom:16px">
+
+    {# The authority on offer #}
+    <div class="row" style="background:var(--card-2);align-items:center">
+      {{ L.ring(g.score) }}
+      <div style="flex:1;min-width:0">
+        <div class="facts">
+          <span class="name">{{ g.name or 'Unknown seller' }}</span>
+          {% if g.mc_number or g.dot_number %}
+            <span class="chip"><span class="mono">MC {{ g.mc_number or '—' }}</span></span>
+          {% endif %}
+          {% if g.price_usd %}<span class="money">{{ g.price_usd|money }}</span>{% endif %}
         </div>
-        <div class="text-2xl text-slate-300 self-center">→</div>
-        <div>
-          <div class="text-[11px] uppercase text-emerald-700">Sotuvchi · {{ m.seller_score }} ball</div>
-          <div class="font-semibold">{{ m.seller_name or '—' }}</div>
-          <div class="text-slate-500">
-            MC {{ m.mc_number or '—' }} / DOT {{ m.dot_number or '—' }}
-            {% if m.price_usd %}· {{ m.price_usd|money }}{% endif %}
-          </div>
-          {% if m.seller_link %}<a href="{{ m.seller_link }}" target="_blank" class="text-blue-600 underline">post↗</a>{% endif %}
-          {% if m.alt_buyers %}<div class="text-slate-400 text-[11px]">
-            bu sotuvchiga yana {{ m.alt_buyers }} ta xaridor mos kelgan</div>{% endif %}
+        <div class="meta" style="margin-top:2px">
+          {{ g.buyers|length }} {{ 'buyer' if g.buyers|length == 1 else 'buyers' }} suggested
+          {%- if g.alt_buyers %} · {{ g.alt_buyers }} more also fit{% endif %}
         </div>
       </div>
-
-      <div class="flex flex-wrap gap-1 mt-2">
-        {% for r in m.reasons %}<span class="bg-slate-100 rounded px-1.5 py-0.5">{{ r }}</span>{% endfor %}
-      </div>
-
-      <div class="mt-2 bg-slate-50 border rounded p-2 flex gap-2 items-start">
-        <div class="flex-1 whitespace-pre-wrap">{{ m.intro_text }}</div>
-        <button class="border rounded px-2 py-1 shrink-0 hover:bg-white"
-                onclick="navigator.clipboard.writeText(this.previousElementSibling.innerText); this.innerText='✓'">nusxa</button>
-      </div>
+      {% if g.link %}
+        <a class="btn" href="{{ g.link }}" target="_blank" rel="noopener">
+          <i data-lucide="external-link" style="width:14px;height:14px"></i> Post</a>
+      {% endif %}
     </div>
 
-    <form method="post" action="/match/{{ m.match_id }}/status" class="shrink-0">
-      <select name="status" onchange="this.form.submit()" class="border rounded px-1 py-1">
-        {% for s in ['new', 'sent', 'won', 'junk'] %}
-          <option value="{{ s }}" {{ 'selected' if m.status == s }}>{{ s }}</option>{% endfor %}
-      </select>
-    </form>
-  </div>
-</div>
-{% else %}
-  <div class="bg-white border rounded p-8 text-center text-slate-500">
-    Match yo'q. <code>uv run mc match</code> ni yurgizing.
+    {# Its buyers, best first #}
+    {% for m in g.buyers %}
+    <div class="row" style="align-items:flex-start">
+      <span class="ring cold" style="width:36px;height:36px" title="Match strength {{ m.score }}">
+        <svg width="36" height="36" viewBox="0 0 36 36">
+          <circle class="track-c" cx="18" cy="18" r="15" fill="none" stroke-width="3"/>
+          <circle cx="18" cy="18" r="15" fill="none" stroke="var(--indigo)" stroke-width="3"
+                  stroke-linecap="round" stroke-dasharray="94.2"
+                  stroke-dashoffset="{{ 94.2 * (1 - (m.score or 0) / 100) }}"/>
+        </svg>
+        <span class="n" style="font-size:11px">{{ m.score }}</span>
+      </span>
+
+      <div style="flex:1;min-width:0">
+        <div class="facts">
+          <span class="name">{{ m.buyer_name or 'Unknown buyer' }}</span>
+          {% if m.buyer_wants_state %}
+            <span class="chip chip-blue"><i data-lucide="map-pin"></i>{{ m.buyer_wants_state }}</span>{% endif %}
+          {% if m.buyer_budget_usd %}<span class="money">{{ m.buyer_budget_usd|money }}</span>{% endif %}
+          {% if m.buyer_link %}
+            <a class="chip" href="{{ m.buyer_link }}" target="_blank" rel="noopener">
+              <i data-lucide="external-link"></i>post</a>{% endif %}
+          {% if m.alt_sellers %}
+            <span class="meta">{{ m.alt_sellers }} other options</span>{% endif %}
+        </div>
+
+        <div class="facts" style="margin-top:5px">
+          {% for r in m.reasons %}<span class="chip">{{ r }}</span>{% endfor %}
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:flex-start;margin-top:8px">
+          <div style="flex:1;background:var(--fill);border-radius:9px;padding:9px 11px;font-size:13px">
+            {{ m.intro_text }}</div>
+          <button class="btn" data-copy="{{ m.intro_text }}">
+            <i data-lucide="copy" style="width:14px;height:14px"></i> Copy</button>
+        </div>
+      </div>
+
+      <form method="post" action="/match/{{ m.match_id }}/status" class="field select-wrap"
+            style="padding:4px 9px;flex:none">
+        <select name="status" onchange="this.form.submit()" aria-label="Match status">
+          {% for s, lbl in [('new','Open'), ('sent','Sent'), ('won','Closed'), ('junk','Dismiss')] %}
+            <option value="{{ s }}" {{ 'selected' if m.status == s }}>{{ lbl }}</option>{% endfor %}
+        </select>
+      </form>
+    </div>
+    {% endfor %}
   </div>
 {% endfor %}
 </div>
+{% else %}
+<div class="group">
+  <div class="empty">
+    <i data-lucide="git-compare" style="width:34px;height:34px"></i>
+    <h3>No introductions yet</h3>
+    <p>Matches appear once there are sellers and buyers whose requirements overlap.</p>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

@@ -1,138 +1,171 @@
-{# score hali hisoblanmagan bo'lishi mumkin (yangi lead, ball bosqichi hali yurmagan) #}
 {% macro tier(score) %}{% set s = score or 0 %}{{ 'hot' if s >= 75 else ('warm' if s >= 55 else 'cold') }}{% endmacro %}
 
-{% macro badge(score) %}
-  {% set t = tier(score)|trim %}
-  {% set c = {'hot': 'bg-emerald-600', 'warm': 'bg-amber-500', 'cold': 'bg-slate-400'}[t] %}
-  <span class="{{ 'bg-slate-300' if score is none else c }} text-white font-bold rounded-md w-11 h-11 flex flex-col items-center justify-center leading-none shrink-0"
-        {% if score is none %}title="Ball hali hisoblanmagan — yangi topilgan lead. Keyingi siklda (bir necha daqiqada) o'zi hisoblanadi."{% endif %}>
-    <span class="text-[15px] tabular-nums">{{ '…' if score is none else score }}</span>
-    <span class="text-[9px] font-medium opacity-80 uppercase tracking-wide">ball</span>
+{# Signature: the score as an Activity-style arc. A 0–100 continuous value
+   reads faster as a filled ring than as a number in a box. #}
+{% macro ring(score) %}
+  {% set s = score if score is not none else 0 %}
+  {% set cls = 'empty' if score is none else tier(score)|trim %}
+  <span class="ring {{ cls }}" title="{{ 'Not scored yet — the next cycle will pick it up' if score is none else 'Lead score ' ~ score ~ ' of 100' }}">
+    <svg width="44" height="44" viewBox="0 0 44 44">
+      <circle class="track-c" cx="22" cy="22" r="18" fill="none" stroke-width="3.5"/>
+      <circle class="val-c" cx="22" cy="22" r="18" fill="none" stroke-width="3.5"
+              stroke-dasharray="113.1" stroke-dashoffset="{{ 113.1 * (1 - s / 100) }}"/>
+    </svg>
+    <span class="n">{{ '–' if score is none else score }}</span>
   </span>
 {% endmacro %}
 
-{% macro chip(text, tone='slate', title='') %}
-  {% set c = {
-    'slate':   'bg-slate-100 text-slate-700 border-slate-200',
-    'green':   'bg-emerald-50 text-emerald-800 border-emerald-200',
-    'red':     'bg-red-50 text-red-800 border-red-200',
-    'amber':   'bg-amber-50 text-amber-800 border-amber-200',
-    'blue':    'bg-blue-50 text-blue-800 border-blue-200',
-    'violet':  'bg-violet-50 text-violet-800 border-violet-200',
-    'orange':  'bg-orange-50 text-orange-800 border-orange-200',
-  }[tone] %}
-  <span class="{{ c }} border rounded px-1.5 py-0.5 text-[12px] whitespace-nowrap"
-        {% if title %}title="{{ title }}"{% endif %}>{{ text }}</span>
+{% macro chip(text, tone='', icon='') %}
+  <span class="chip {{ 'chip-' ~ tone if tone }}">
+    {% if icon %}<i data-lucide="{{ icon }}"></i>{% endif %}{{ text }}</span>
 {% endmacro %}
 
-{% macro fmcsa_chip(fm, lead) %}
+{# The one element that separates a claim from a fact. #}
+{% macro seal(fm, lead) %}
   {% if fm and fm.status == 'ACTIVE' %}
-    {{ chip('✓ ' ~ (fm.docket or ('DOT ' ~ fm.dot_number)) ~ ' · ' ~ fm.age_years ~ 'y · ' ~ (fm.state or '—'),
-            'green', fm.legal_name ~ ' · ' ~ (fm.city or '') ~ ' · ' ~ (fm.power_units or '?') ~ ' truck') }}
+    <span class="seal" title="{{ fm.legal_name }} · {{ fm.city }}, {{ fm.state }} · {{ fm.power_units or '?' }} trucks · verified against the FMCSA register">
+      <i data-lucide="badge-check" style="width:13px;height:13px"></i>
+      <span class="docket">{{ fm.docket or ('DOT ' ~ fm.dot_number) }}</span>
+      <span style="opacity:.65">{{ fm.age_years }}y · {{ fm.state or '—' }}</span>
+    </span>
   {% elif fm %}
-    {{ chip('✗ ' ~ fm.status ~ ' · ' ~ (fm.docket or fm.dot_number), 'red', fm.legal_name or '') }}
+    <span class="seal dead" title="{{ fm.legal_name }} — this authority is not active">
+      <i data-lucide="badge-x" style="width:13px;height:13px"></i>
+      <span class="docket">{{ fm.docket or fm.dot_number }}</span> {{ fm.status }}
+    </span>
   {% elif lead.mc_number or lead.dot_number %}
-    {{ chip('? MC ' ~ (lead.mc_number or '—') ~ ' / DOT ' ~ (lead.dot_number or '—'),
-            'amber', 'FMCSA bazasida topilmadi') }}
+    <span class="seal unknown" title="Not found in the FMCSA register">
+      <i data-lucide="badge-help" style="width:13px;height:13px"></i>
+      <span class="docket">MC {{ lead.mc_number or '—' }}</span>
+    </span>
   {% endif %}
 {% endmacro %}
 
-{% macro fit_badge(lead) %}
+{% macro verdict(lead) %}
   {% if lead.fit_verdict == 'pass' %}
-    <span class="bg-emerald-600 text-white rounded px-2 py-0.5 text-[12px] font-semibold whitespace-nowrap"
-          title="{{ lead.fit_reasons|join(' · ') }}">TALABGA MOS</span>
+    <span class="verdict verdict-pass" title="{{ lead.fit_reasons|join(' · ') }}">Meets spec</span>
   {% elif lead.fit_verdict == 'fail' %}
-    <span class="bg-red-600 text-white rounded px-2 py-0.5 text-[12px] font-semibold whitespace-nowrap"
-          title="{{ lead.fit_reasons|join(' · ') }}">MOS EMAS</span>
+    <span class="verdict verdict-fail" title="{{ lead.fit_reasons|join(' · ') }}">Off spec</span>
   {% elif lead.fit_verdict == 'ask' %}
-    <span class="bg-amber-500 text-white rounded px-2 py-0.5 text-[12px] font-semibold whitespace-nowrap"
-          title="So'rash kerak: {{ lead.fit_missing|join(', ') }}">SO'RASH KERAK</span>
+    <span class="verdict verdict-ask" title="Ask about: {{ lead.fit_missing|join(', ') }}">Ask first</span>
   {% endif %}
 {% endmacro %}
 
-{% macro detail(lead, back) %}
-<details class="group/d mt-1.5">
-  <summary class="cursor-pointer inline-flex items-center gap-1 text-[12px] text-slate-500 hover:text-slate-900 select-none">
-    <span class="group-open/d:rotate-90 transition-transform">›</span> tafsilot
-  </summary>
+{# Row facts, kept to what changes a decision. #}
+{% macro facts(r, is_sell) %}
+  {% if r.ts|isnew %}<span class="dot-new" title="Posted in the last 2 hours"></span>{% endif %}
+  {{ verdict(r) }}
+  {{ seal(r.fmcsa, r) }}
+  {% if is_sell %}
+    {% if r.price_usd %}<span class="money">{{ r.price_usd|money }}</span>{% endif %}
+    {% if not r.fmcsa and r.authority_age_years %}{{ chip((r.authority_age_years|age) ~ ' claimed', '', 'calendar') }}{% endif %}
+    {% if r.amazon_status == 'approved' %}{{ chip('Amazon', 'green', 'package-check') }}
+    {% elif r.amazon_status == 'rejected' %}{{ chip('Amazon denied', 'orange', 'package-x') }}
+    {% elif r.amazon_status == 'never_applied' %}{{ chip('Amazon unused', '', 'package') }}{% endif %}
+    {% set inc = [] %}
+    {% if r.includes_bank %}{% set _ = inc.append('bank') %}{% endif %}
+    {% if r.includes_email %}{% set _ = inc.append('email') %}{% endif %}
+    {% if r.includes_phone %}{% set _ = inc.append('phone') %}{% endif %}
+    {% if inc %}{{ chip(inc|join(' · '), 'green', 'package-open') }}{% endif %}
+  {% else %}
+    {% if r.buyer_wants_state or r.state %}{{ chip(r.buyer_wants_state or r.state, 'blue', 'map-pin') }}{% endif %}
+    {% if r.buyer_budget_usd %}<span class="money">{{ r.buyer_budget_usd|money }}</span>{% endif %}
+    {% if r.buyer_min_age_years %}{{ chip((r.buyer_min_age_years|age) ~ '+', '', 'calendar') }}{% endif %}
+    {% if r.buyer_needs_amazon %}{{ chip('Needs Amazon', '', 'package') }}{% endif %}
+  {% endif %}
+  {% if r.is_suspected_reseller %}{{ chip('Reseller · ' ~ r.n_sell, 'orange', 'repeat') }}{% endif %}
+  {% if r.contact_value %}
+    <span class="chip chip-blue" style="user-select:all"><i data-lucide="phone"></i>{{ r.contact_value }}</span>
+  {% endif %}
+{% endmacro %}
 
-  <div class="mt-2 grid grid-cols-1 lg:grid-cols-3 gap-5 bg-slate-50 border border-slate-200 rounded-lg p-4">
-
-    <div class="min-w-0">
-      <div class="font-semibold text-slate-400 uppercase text-[10px] tracking-wider mb-1.5">To'liq matn</div>
-      <div class="whitespace-pre-wrap text-slate-800 leading-relaxed">{{ lead.text }}</div>
-      {% if lead.source_type == 'comment' %}
-        <div class="mt-2 text-[12px] text-slate-500">
-          Comment'dan olingan.
-          {% if lead.permalink %}<a class="text-blue-600 hover:underline" href="{{ lead.permalink }}" target="_blank">Ota-postni ochish ↗</a>{% endif %}
-        </div>
-      {% endif %}
-      {% if lead.note %}
-        <div class="mt-3 bg-amber-50 border border-amber-200 rounded p-2 text-amber-900">{{ lead.note }}</div>
-      {% endif %}
+{# Sheet contents, hidden in the page and cloned on open. #}
+{% macro detail(lead, back, is_sell) %}
+<template id="detail-{{ lead.lead_id }}">
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:12px">
+      {{ ring(lead.score) }}
+      <div style="flex:1;min-width:0">
+        <div class="name">{{ lead.person_name or 'Unknown' }}</div>
+        <div class="meta">{{ lead.ts|ago }} ago · {{ 'seller' if is_sell else 'buyer' }}
+          {%- if lead.group_name %} · {{ lead.group_name }}{% endif %}</div>
+      </div>
+      {{ verdict(lead) }}
     </div>
-
-    <div>
-      <div class="font-semibold text-slate-400 uppercase text-[10px] tracking-wider mb-1.5">Ball qanday chiqdi</div>
-      <table class="w-full">
-        {% for reason, pts in lead.breakdown %}
-        <tr class="border-b border-slate-200/70">
-          <td class="py-1 pr-2 text-slate-700">{{ reason }}</td>
-          <td class="py-1 text-right tabular-nums font-semibold w-12
-                     {{ 'text-emerald-700' if pts > 0 else ('text-red-700' if pts < 0 else 'text-slate-400') }}">
-            {{ '%+g' % pts }}
-          </td>
-        </tr>
-        {% endfor %}
-        <tr><td class="pt-1.5 font-semibold">Jami</td>
-            <td class="pt-1.5 text-right font-bold tabular-nums">{{ lead.score }}</td></tr>
-      </table>
-    </div>
-
-    <div>
-      {% if lead.side == 'SELL' and lead.fit_verdict %}
-        <div class="font-semibold text-slate-400 uppercase text-[10px] tracking-wider mb-1.5">Talab tekshiruvi</div>
-        <ul class="mb-3 space-y-0.5">
-          {% for r in lead.fit_reasons %}<li>{{ r }}</li>{% endfor %}
-          {% if lead.fit_missing %}
-            <li class="text-amber-700 font-medium mt-1">
-              Aniqlanmagan — so'rang: {{ lead.fit_missing|join(', ') }}</li>
-          {% endif %}
-        </ul>
+    <div class="facts" style="margin-top:12px">{{ facts(lead, is_sell) }}</div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      {% if lead.permalink %}
+        <a class="btn btn-primary" href="{{ lead.permalink }}" target="_blank" rel="noopener">
+          <i data-lucide="external-link" style="width:14px;height:14px"></i> Open on Facebook</a>
       {% endif %}
-
-      {% if lead.fmcsa %}
-      <div class="font-semibold text-slate-400 uppercase text-[10px] tracking-wider mb-1.5">FMCSA rasmiy yozuvi</div>
-      <table class="w-full">
-        {% for k, v in [('Legal name', lead.fmcsa.legal_name), ('Holat', lead.fmcsa.status),
-                        ('Authority', lead.fmcsa.authority_status),
-                        ("Ro'yxatga olingan", lead.fmcsa.added),
-                        ('Yosh', (lead.fmcsa.age_years|string) ~ ' yil' if lead.fmcsa.age_years else None),
-                        ('Manzil', (lead.fmcsa.city or '') ~ ', ' ~ (lead.fmcsa.state or '')),
-                        ('Telefon', lead.fmcsa.phone), ('Truck', lead.fmcsa.power_units),
-                        ('Haydovchi', lead.fmcsa.total_drivers),
-                        ('Safety rating', lead.fmcsa.safety_rating or '—'),
-                        ('Crash rate', lead.fmcsa.crash_rate), ('Klass', lead.fmcsa.classdef)] %}
-          {% if v %}<tr class="border-b border-slate-200/70">
-            <td class="py-1 pr-2 text-slate-500 whitespace-nowrap">{{ k }}</td>
-            <td class="py-1 text-slate-800">{{ v }}</td></tr>{% endif %}
-        {% endfor %}
-      </table>
-      {% else %}
-        <div class="font-semibold text-slate-400 uppercase text-[10px] tracking-wider mb-1.5">FMCSA</div>
-        <div class="text-slate-500">
-          {% if lead.mc_number or lead.dot_number %}Bazada topilmadi — raqam noto'g'ri yoki juda yangi.
-          {% else %}Raqam berilmagan, tekshirib bo'lmaydi.{% endif %}
-        </div>
+      {% if lead.contact_value %}
+        <button class="btn" data-copy="{{ lead.contact_value }}">
+          <i data-lucide="copy" style="width:14px;height:14px"></i> Copy contact</button>
       {% endif %}
-
-      <form method="post" action="/lead/{{ lead.lead_id }}/note" class="mt-4 flex gap-1">
-        <input type="hidden" name="back" value="{{ back }}">
-        <input name="note" value="{{ lead.note or '' }}" placeholder="Eslatma yozish…"
-               class="flex-1 border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500">
-        <button class="bg-slate-800 hover:bg-slate-700 text-white rounded px-3">saqlash</button>
-      </form>
+      <a class="btn btn-quiet" href="/people/{{ lead.person_id }}">
+        <i data-lucide="user" style="width:14px;height:14px"></i> History</a>
     </div>
   </div>
-</details>
+
+  <div class="card">
+    <h3>Post</h3>
+    <div class="post-text">{{ lead.text }}</div>
+  </div>
+
+  {% if is_sell and lead.fit_verdict %}
+  <div class="card">
+    <h3>Against your spec</h3>
+    {% for r in lead.fit_reasons %}<div style="padding:3px 0">{{ r }}</div>{% endfor %}
+    {% if lead.fit_missing %}
+      <div style="margin-top:8px;padding:10px;background:var(--orange-soft);border-radius:9px;color:var(--orange)">
+        <strong>Not stated — ask the seller:</strong> {{ lead.fit_missing|join(', ') }}
+      </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if lead.fmcsa %}
+  <div class="card">
+    <h3>FMCSA register</h3>
+    <table class="kv">
+      {% for k, v in [('Legal name', lead.fmcsa.legal_name), ('Status', lead.fmcsa.status),
+                      ('Authority', lead.fmcsa.authority_status), ('Registered', lead.fmcsa.added),
+                      ('Age', (lead.fmcsa.age_years|string) ~ ' years' if lead.fmcsa.age_years else None),
+                      ('Location', (lead.fmcsa.city or '') ~ ', ' ~ (lead.fmcsa.state or '')),
+                      ('Phone on file', lead.fmcsa.phone), ('Power units', lead.fmcsa.power_units),
+                      ('Drivers', lead.fmcsa.total_drivers),
+                      ('Safety rating', lead.fmcsa.safety_rating or 'None on file'),
+                      ('Crash rate', lead.fmcsa.crash_rate), ('Class', lead.fmcsa.classdef)] %}
+        {% if v %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endif %}
+      {% endfor %}
+    </table>
+  </div>
+  {% elif lead.mc_number or lead.dot_number %}
+  <div class="card">
+    <h3>FMCSA register</h3>
+    <p style="margin:0;color:var(--label-2)">No record for this number. It may be mistyped, or the
+       authority is too new to appear.</p>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h3>Score {{ lead.score if lead.score is not none else '—' }}</h3>
+    <table class="kv">
+      {% for reason, pts in lead.breakdown %}
+        <tr><td style="width:auto">{{ reason }}</td>
+            <td class="{{ 'plus' if pts > 0 else 'minus' }}" style="width:60px">{{ '%+g' % pts }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <form method="post" action="/lead/{{ lead.lead_id }}/note" class="card">
+    <h3>Note</h3>
+    <input type="hidden" name="back" value="{{ back }}">
+    <div style="display:flex;gap:8px">
+      <span class="field grow"><input name="note" value="{{ lead.note or '' }}"
+             placeholder="What did they say?"></span>
+      <button class="btn btn-primary">Save</button>
+    </div>
+  </form>
+</template>
 {% endmacro %}

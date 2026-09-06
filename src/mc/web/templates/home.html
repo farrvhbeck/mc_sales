@@ -1,57 +1,59 @@
 {% extends "base.html" %}
 {% import "_lead.html" as L %}
+{% block title %}Dashboard{% endblock %}
+
 {% block content %}
 
-<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
-  {% for label, val, cls in [
-      ('24 soatda yangi', kpi.new_24h, 'text-slate-900'),
-      ('Yangi sotuvchi', kpi.sellers, 'text-emerald-700'),
-      ('Yangi xaridor', kpi.buyers, 'text-blue-700'),
-      ('Issiq (≥65)', kpi.hot, 'text-orange-600'),
-      ('Match taklifi', kpi.matches, 'text-violet-700')] %}
-    <div class="bg-white border rounded p-3">
-      <div class="text-[11px] uppercase text-slate-500">{{ label }}</div>
-      <div class="text-3xl font-bold {{ cls }} tabular-nums">{{ val }}</div>
-    </div>
+<div class="title-row">
+  <h1 class="large">Today</h1>
+  <span class="title-count">{{ kpi.new_24h }} new in the last 24 hours</span>
+</div>
+
+<div class="stats stagger">
+  {% for label, val, href, colour, icon in [
+      ('Sellers waiting', kpi.sellers, '/sellers?status=new', 'var(--green)', 'store'),
+      ('Buyers waiting',  kpi.buyers,  '/buyers?status=new',  'var(--blue)',  'hand-coins'),
+      ('Strong leads',    kpi.hot,     '/sellers?min_score=65', 'var(--orange)', 'flame'),
+      ('Introductions',   kpi.matches, '/matches', 'var(--indigo)', 'git-compare')] %}
+    <a class="stat" href="{{ href }}">
+      <div class="k" style="display:flex;align-items:center;gap:6px">
+        <i data-lucide="{{ icon }}" style="width:13px;height:13px;color:{{ colour }}"></i>{{ label }}</div>
+      <div class="v" style="color:{{ colour }}">{{ val }}</div>
+    </a>
   {% endfor %}
 </div>
 
-<div class="bg-white border rounded p-3 mb-4 flex flex-wrap gap-6 items-center">
-  <div>
-    <div class="text-[11px] uppercase text-slate-500">Groq bugungi token ({{ n_keys }} key)</div>
-    <div class="font-semibold tabular-nums">{{ '{:,}'.format(tokens) }} / {{ '{:,}'.format(budget) }}</div>
-    <div class="w-48 h-1.5 bg-slate-200 rounded mt-1">
-      {% set pct = (tokens / budget * 100) if budget else 0 %}
-      <div class="h-1.5 rounded {{ 'bg-red-500' if pct > 85 else 'bg-emerald-500' }}"
-           style="width: {{ [pct, 100]|min }}%"></div>
-    </div>
-  </div>
-  {% for k, v in health.items() %}
-    <div>
-      <div class="text-[11px] uppercase text-slate-500">{{ k }}</div>
-      <div class="{{ 'text-red-600 font-semibold' if 'DEAD' in (v.value or '') else '' }}">{{ (v.value or '')[:90] }}</div>
-    </div>
+<p class="section-label" style="margin-top:26px">Worth a look now</p>
+
+{% if top %}
+<div class="group stagger">
+  {% for r in top %}
+    {% set is_sell = r.side == 'SELL' %}
+    <a class="row" href="{{ '/sellers' if is_sell else '/buyers' }}">
+      {{ L.ring(r.score) }}
+      <div style="flex:1;min-width:0">
+        <div class="facts">
+          <span class="chip {{ 'chip-green' if is_sell else 'chip-blue' }}">
+            {{ 'Selling' if is_sell else 'Buying' }}</span>
+          <span class="name">{{ r.person_name or 'Unknown' }}</span>
+          {{ L.seal(r.fmcsa, r) }}
+          {% if is_sell and r.price_usd %}<span class="money">{{ r.price_usd|money }}</span>{% endif %}
+          {% if not is_sell and r.buyer_budget_usd %}<span class="money">{{ r.buyer_budget_usd|money }}</span>{% endif %}
+          <span class="meta" style="margin-left:auto">{{ r.ts|ago }}</span>
+        </div>
+        <div class="snippet">{{ r.text }}</div>
+      </div>
+      <i data-lucide="chevron-right" style="width:16px;height:16px;color:var(--label-3);align-self:center;flex:none"></i>
+    </a>
   {% endfor %}
 </div>
-
-<h2 class="font-semibold mb-2">Bugungi top</h2>
-<div class="space-y-1">
-{% for r in top %}
-  <a href="{{ '/sellers' if r.side == 'SELL' else '/buyers' }}"
-     class="flex gap-3 items-center bg-white border rounded p-2 hover:bg-slate-50">
-    {{ L.badge(r.score) }}
-    <span class="text-[11px] rounded px-1.5 py-0.5 {{ 'bg-emerald-100 text-emerald-800' if r.side == 'SELL' else 'bg-blue-100 text-blue-800' }}">
-      {{ 'SOTUVCHI' if r.side == 'SELL' else 'XARIDOR' }}</span>
-    <span class="font-semibold">{{ r.person_name or '—' }}</span>
-    {{ L.fmcsa_chip(r.fmcsa, r) }}
-    {% if r.price_usd %}<span class="font-semibold">{{ r.price_usd|money }}</span>{% endif %}
-    <span class="text-slate-600 truncate flex-1">{{ (r.text or '')[:140] }}</span>
-    <span class="text-slate-400">{{ r.ts|ago }}</span>
-  </a>
 {% else %}
-  <div class="bg-white border rounded p-8 text-center text-slate-500">
-    Baza bo'sh. <code>uv run mc collect</code> bilan boshlang.
+<div class="group">
+  <div class="empty">
+    <i data-lucide="radar" style="width:34px;height:34px"></i>
+    <h3>Nothing collected yet</h3>
+    <p>Run <code>uv run mc start</code> and the first leads arrive within a few minutes.</p>
   </div>
-{% endfor %}
 </div>
+{% endif %}
 {% endblock %}

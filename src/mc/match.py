@@ -21,18 +21,20 @@ FROM leads l
 LEFT JOIN people pe  ON pe.person_id = l.person_id
 LEFT JOIN posts p    ON p.post_id = l.source_id AND l.source_type = 'post'
 LEFT JOIN comments c ON c.comment_id = l.source_id AND l.source_type = 'comment'
-WHERE l.side = ? AND l.status NOT IN ('junk', 'closed')
+-- 'duplicate' ham chiqarib tashlanadi: bir xil e'lon ikki marta
+-- taklif qilinsa, ro'yxat tartibsiz ko'rinadi.
+WHERE l.side = ? AND l.status NOT IN ('junk', 'closed', 'duplicate')
 """
 
 
 def _blocked(buyer: dict, seller: dict, commented: set[tuple[str, str]]) -> str | None:
     """Match qilish mumkin emasligining sababi, yoki None."""
     if buyer["source_post_id"] and buyer["source_post_id"] == seller["source_post_id"]:
-        return "buyer aynan shu postda yozgan"
+        return "buyer wrote on this very post"
     if buyer["person_id"] and buyer["person_id"] == seller["person_id"]:
-        return "o'zini o'ziga"
+        return "same person on both sides"
     if (buyer["person_id"], seller["source_post_id"]) in commented:
-        return "buyer bu postga allaqachon comment yozgan"
+        return "buyer already commented on this post"
     return None
 
 
@@ -46,17 +48,17 @@ def _fit(buyer: dict, seller: dict, tol: float, fm: dict | None) -> tuple[int, l
     if want_state and seller_state:
         if want_state.upper() != seller_state.upper():
             return None
-        reasons.append(f"Shtat mos: {want_state}")
+        reasons.append(f"State matches: {want_state}")
         pts += 20
     elif want_state and not seller_state:
-        reasons.append(f"Buyer {want_state} so'ragan, seller shtati noma'lum")
+        reasons.append(f"Buyer wants {want_state}; seller state unknown")
 
     min_age = buyer.get("buyer_min_age_years")
     age = (fm or {}).get("age_years") or seller.get("authority_age_years")
     if min_age and age:
         if age < min_age:
             return None
-        reasons.append(f"Yosh talabga javob beradi: {age}y >= {min_age}y")
+        reasons.append(f"Old enough: {age}y vs {min_age}y wanted")
         pts += 15
 
     budget = buyer.get("buyer_budget_usd")
@@ -64,17 +66,17 @@ def _fit(buyer: dict, seller: dict, tol: float, fm: dict | None) -> tuple[int, l
     if budget and price:
         if price > budget * tol:
             return None
-        reasons.append(f"Narx byudjetga sig'adi: ${price:,} <= ${budget:,}")
+        reasons.append(f"Within budget: ${price:,} of ${budget:,}")
         pts += 20
 
     if buyer.get("buyer_needs_amazon"):
         if not seller.get("has_amazon"):
             return None
-        reasons.append("Amazon account bor")
+        reasons.append("Has an Amazon account")
         pts += 15
 
     if fm and fm.get("status") == "ACTIVE":
-        reasons.append("FMCSA'da ACTIVE")
+        reasons.append("Active in the FMCSA register")
         pts += 15
 
     # Ikkala tomonning sifati
@@ -84,7 +86,7 @@ def _fit(buyer: dict, seller: dict, tol: float, fm: dict | None) -> tuple[int, l
     if seller.get("ts"):
         hours = (time.time() - seller["ts"]) / 3600
         if hours < 48:
-            reasons.append("Seller posti yangi (<48s)")
+            reasons.append("Posted in the last 48 hours")
             pts += 10
 
     if not reasons:
@@ -97,7 +99,7 @@ def _intro(buyer: dict, seller: dict, fm: dict | None) -> str:
     if fm:
         bits.append(f"{fm.get('docket') or ''} / DOT {fm.get('dot_number')}".strip(" /"))
         if fm.get("age_years"):
-            bits.append(f"{fm['age_years']} yil ({fm.get('added')})")
+            bits.append(f"{fm['age_years']} yrs, since {fm.get('added')}")
         if fm.get("status"):
             bits.append(f"FMCSA: {fm['status']}")
         if fm.get("state"):
@@ -105,8 +107,8 @@ def _intro(buyer: dict, seller: dict, fm: dict | None) -> str:
     if seller.get("price_usd"):
         bits.append(f"${seller['price_usd']:,}")
     if seller.get("has_amazon"):
-        bits.append("Amazon account bor")
-    detail = " · ".join(b for b in bits if b) or "tafsilotlar postda"
+        bits.append("Amazon account")
+    detail = " · ".join(b for b in bits if b) or "details in the post"
 
     return (
         f"Hi {(buyer.get('person_name') or '').split(' ')[0]} — saw you're looking for an "
@@ -153,25 +155,35 @@ def run(limit_pairs: int = 2000) -> dict:
     # 2) Eng yaxshisidan boshlab tanlaymiz, IKKALA tomonga ham chegara qo'yib.
     #    Sotuvchi bir marta sotadi -- uni 24 ta xaridorga taklif qilish
     #    bitta sotuv uchun 24 ta ish va spamga o'xshash yozishma degani.
-    per_buyer: dict[int, int] = {}
-    per_seller: dict[int, int] = {}
-    alt_buyers = Counter(s["lead_id"] for _, _, _, s, _ in candidates)
-    alt_sellers = Counter(b["lead_id"] for _, _, b, _, _ in candidates)
+    # Chegara PERSON bo'yicha, lead bo'yicha emas: bir odam bir necha marta
+    # (biroz boshqacha matn bilan) yozgan bo'lishi mumkin, lekin u baribir
+    # bitta odam va unga bir marta yoziladi.
+    per_buyer: dict[str, int] = {}
+    per_seller: dict[str, int] = {}
+    seen_pair: set[tuple] = set()
+    alt_buyers = Counter(s["person_id"] for _, _, _, s, _ in candidates)
+    alt_sellers = Counter(b["person_id"] for _, _, b, _, _ in candidates)
 
     rows = []
     for score, reasons, buyer, seller, fm in sorted(candidates, key=lambda c: -c[0]):
         if len(rows) >= limit_pairs:
             break
-        b_id, s_id = buyer["lead_id"], seller["lead_id"]
-        if per_buyer.get(b_id, 0) >= max_per_buyer or per_seller.get(s_id, 0) >= max_per_seller:
+        bp = buyer["person_id"] or f"lead:{buyer['lead_id']}"
+        sp = seller["person_id"] or f"lead:{seller['lead_id']}"
+        if (bp, sp) in seen_pair:
             stats["trimmed"] += 1
             continue
-        per_buyer[b_id] = per_buyer.get(b_id, 0) + 1
-        per_seller[s_id] = per_seller.get(s_id, 0) + 1
+        if per_buyer.get(bp, 0) >= max_per_buyer or per_seller.get(sp, 0) >= max_per_seller:
+            stats["trimmed"] += 1
+            continue
+        seen_pair.add((bp, sp))
+        per_buyer[bp] = per_buyer.get(bp, 0) + 1
+        per_seller[sp] = per_seller.get(sp, 0) + 1
         rows.append(
-            (b_id, s_id, score, json.dumps(reasons, ensure_ascii=False),
+            (buyer["lead_id"], seller["lead_id"], score,
+             json.dumps(reasons, ensure_ascii=False),
              _intro(buyer, seller, fm), time.time(),
-             alt_buyers[s_id] - 1, alt_sellers[b_id] - 1)
+             alt_buyers[sp] - 1, alt_sellers[bp] - 1)
         )
         stats["pairs"] += 1
 

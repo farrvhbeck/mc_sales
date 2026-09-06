@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import db, runs
@@ -16,6 +17,7 @@ from ..enrich import fmcsa
 BASE = Path(__file__).parent
 app = FastAPI(title="MC Lead Engine")
 tpl = Jinja2Templates(directory=str(BASE / "templates"))
+app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
 
 LEAD_SELECT = """
 SELECT l.*, pe.name AS person_name, pe.profile_url, pe.is_suspected_reseller,
@@ -23,7 +25,8 @@ SELECT l.*, pe.name AS person_name, pe.profile_url, pe.is_suspected_reseller,
        COALESCE(p.text, c.text)                                     AS text,
        COALESCE(p.permalink, sp.permalink)                          AS permalink,
        COALESCE(p.created_at, c.created_at,
-                p.first_seen_at, c.first_seen_at)                   AS ts
+                p.first_seen_at, c.first_seen_at)                   AS ts,
+       COALESCE(p.group_id, sp.group_id)                            AS group_id
 FROM leads l
 LEFT JOIN people   pe ON pe.person_id = l.person_id
 LEFT JOIN posts    p  ON p.post_id    = l.source_id AND l.source_type = 'post'
@@ -33,26 +36,38 @@ LEFT JOIN posts    sp ON sp.post_id   = l.source_post_id
 
 STATUSES = ["new", "contacted", "qualified", "matched", "closed", "duplicate", "junk"]
 
+# Ko'rinadigan nomlar — status kodini foydalanuvchi tili bilan ajratamiz
+STATUS_LABELS = {
+    "": "All", "new": "New", "contacted": "Contacted", "qualified": "Qualified",
+    "matched": "Matched", "closed": "Closed", "duplicate": "Duplicates", "junk": "Discarded",
+}
+
+# Vaqt oraliqlari (soatda). None = ixtiyoriy sana
+RANGES = [("", "Any time", None), ("6h", "Last 6 hours", 6), ("24h", "Last 24 hours", 24),
+          ("3d", "Last 3 days", 72), ("7d", "Last 7 days", 168),
+          ("30d", "Last 30 days", 720), ("custom", "Custom range…", None)]
+
 
 def _ago(ts: float | None) -> str:
-    """Postning yoshi. To'liq so'z bilan -- "15k" pul summasiga o'xshab ketardi."""
+    """How old the post is. Spelled out -- "15k" read as a dollar amount."""
     if not ts:
         return "—"
     h = (time.time() - ts) / 3600
     if h < 1:
-        return f"{max(1, int(h * 60))} daq"
+        return f"{max(1, int(h * 60))} min"
     if h < 48:
-        return f"{int(h)} soat"
-    return f"{int(h / 24)} kun"
+        return f"{int(h)} h"
+    d = int(h / 24)
+    return f"{d} day" if d == 1 else f"{d} days"
 
 
 tpl.env.filters["ago"] = _ago
 tpl.env.filters["money"] = lambda v: f"${v:,}" if v else "—"
 tpl.env.filters["age"] = lambda y: (
-    "—" if y is None else (f"{round(y * 12)} oy" if y < 1 else f"{round(y, 1)} yil"))
+    "—" if y is None else (f"{round(y * 12)} mo" if y < 1 else f"{round(y, 1)} yr"))
 tpl.env.filters["isnew"] = lambda ts: bool(ts) and (time.time() - ts) < 7200
 tpl.env.filters["dur"] = lambda s: (f"{s:.0f}s" if s and s < 90 else
-                                    (f"{s/60:.0f}d" if s else "—"))
+                                    (f"{s/60:.0f}m" if s else "—"))
 # Sarlavhadagi holat chizig'i har sahifada ko'rinadi
 tpl.env.filters["localtime"] = lambda ts: (
     time.strftime("%m-%d %H:%M", time.localtime(ts)) if ts else "—")
@@ -60,41 +75,90 @@ tpl.env.globals["run_status"] = runs.status
 tpl.env.globals["STEP_LABELS"] = runs.STEP_LABELS
 
 
+def _parse_date(v: str | None) -> float | None:
+    if not v:
+        return None
+    try:
+        return time.mktime(time.strptime(v, "%Y-%m-%d"))
+    except ValueError:
+        return None
+
+
 def _rows(side: str, args: dict) -> list[dict]:
     where = ["l.side = ?"]
     params: list = [side]
+    ts_expr = "COALESCE(p.created_at, c.created_at, p.first_seen_at, c.first_seen_at)"
 
     if args.get("min_score"):
         where.append("l.score >= ?")
         params.append(int(args["min_score"]))
     if args.get("state"):
-        where.append("(UPPER(COALESCE(l.state, l.buyer_wants_state)) = ?)")
+        where.append("UPPER(COALESCE(l.state, l.buyer_wants_state)) = ?")
         params.append(args["state"].upper())
     if args.get("status"):
         where.append("l.status = ?")
         params.append(args["status"])
     else:
         where.append("l.status NOT IN ('junk', 'duplicate')")
-    if args.get("fresh"):
-        where.append("COALESCE(p.created_at, c.created_at, p.first_seen_at, c.first_seen_at) > ?")
-        params.append(time.time() - 24 * 3600)
+
+    # Vaqt oralig'i
+    rng = args.get("range", "")
+    hours = dict((k, h) for k, _, h in RANGES).get(rng)
+    if hours:
+        where.append(f"{ts_expr} > ?")
+        params.append(time.time() - hours * 3600)
+    elif rng == "custom":
+        if (frm := _parse_date(args.get("from"))):
+            where.append(f"{ts_expr} >= ?")
+            params.append(frm)
+        if (to := _parse_date(args.get("to"))):
+            where.append(f"{ts_expr} < ?")
+            params.append(to + 86400)      # kunning oxirigacha
+
     if args.get("has_contact"):
         where.append("l.contact_value IS NOT NULL")
     if args.get("fit"):
         where.append("l.fit_verdict = ?")
         params.append(args["fit"])
+    if args.get("group"):
+        where.append("p.group_id = ?")
+        params.append(args["group"])
+    if args.get("amazon"):
+        if args["amazon"] == "any":
+            where.append("(l.amazon_status IS NOT NULL OR l.buyer_needs_amazon = 1)")
+        else:
+            where.append("l.amazon_status = ?")
+            params.append(args["amazon"])
+    if args.get("package"):
+        where.append("(l.includes_bank = 1 AND l.includes_email = 1 AND l.includes_phone = 1)")
+
+    price_col = "l.price_usd" if side == "SELL" else "l.buyer_budget_usd"
+    if args.get("price_min"):
+        where.append(f"{price_col} >= ?")
+        params.append(int(args["price_min"]))
+    if args.get("price_max"):
+        where.append(f"{price_col} <= ?")
+        params.append(int(args["price_max"]))
+    if args.get("min_age"):
+        col = "l.authority_age_years" if side == "SELL" else "l.buyer_min_age_years"
+        where.append(f"{col} >= ?")
+        params.append(float(args["min_age"]) / 12)
     if args.get("q"):
         where.append("(COALESCE(p.text, c.text) LIKE ? OR pe.name LIKE ?)")
         params += [f"%{args['q']}%", f"%{args['q']}%"]
 
-    # Talabga mos leadlar har doim tepada: sherik "MOS" ni ko'rib pastga
-    # tushishiga to'g'ri kelmasin.
+    # Leads that meet the spec always sort above ones that only might.
     fit_rank = ("CASE l.fit_verdict WHEN 'pass' THEN 0 WHEN 'ask' THEN 1 "
                 "WHEN 'fail' THEN 3 ELSE 2 END")
-    order = {"fresh": "ts DESC", "price": "l.price_usd DESC"}.get(
-        args.get("sort", ""), f"{fit_rank}, l.score DESC"
-    )
-    sql = f"{LEAD_SELECT} WHERE {' AND '.join(where)} ORDER BY {order} NULLS LAST LIMIT 300"
+    order = {
+        "fresh": f"{ts_expr} DESC",
+        "oldest": f"{ts_expr} ASC",
+        "price": f"{price_col} DESC NULLS LAST",
+        "price_asc": f"{price_col} ASC NULLS LAST",
+        "age": "l.authority_age_years DESC NULLS LAST",
+    }.get(args.get("sort", ""), f"{fit_rank}, l.score DESC NULLS LAST")
+
+    sql = f"{LEAD_SELECT} WHERE {' AND '.join(where)} ORDER BY {order} LIMIT 300"
 
     with db.connect() as conn:
         rows = [dict(r) for r in conn.execute(sql, params)]
@@ -105,6 +169,10 @@ def _rows(side: str, args: dict) -> list[dict]:
         r["fit_missing"] = json.loads(r["fit_missing"]) if r["fit_missing"] else []
         r["fmcsa"] = fmcsa.for_lead(r) if r["side"] == "SELL" else None
     return rows
+
+
+def _group_names() -> dict[str, str]:
+    return {g["id"]: g["name"] for g in db.load_config()["groups"]}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -206,7 +274,8 @@ def sellers(request: Request):
     args = dict(request.query_params)
     return tpl.TemplateResponse(request, "leads.html", {
         "rows": _rows("SELL", args), "side": "SELL", "counts": _status_counts("SELL"),
-        "args": args, "statuses": STATUSES, "page": "sellers",
+        "args": args, "statuses": STATUSES, "status_labels": STATUS_LABELS,
+        "ranges": RANGES, "groups": _group_names(), "page": "sellers",
     })
 
 
@@ -215,7 +284,8 @@ def buyers(request: Request):
     args = dict(request.query_params)
     return tpl.TemplateResponse(request, "leads.html", {
         "rows": _rows("BUY", args), "side": "BUY", "counts": _status_counts("BUY"),
-        "args": args, "statuses": STATUSES, "page": "buyers",
+        "args": args, "statuses": STATUSES, "status_labels": STATUS_LABELS,
+        "ranges": RANGES, "groups": _group_names(), "page": "buyers",
     })
 
 
@@ -239,10 +309,27 @@ def matches(request: Request):
             WHERE m.status != 'junk'
             ORDER BY m.score DESC LIMIT 200
         """)]
+    # Sellers are the scarce side (roughly 1 seller per 3 buyers), so the page is
+    # organised around the seller: one card per authority, its buyers nested.
+    by_seller: dict[int, dict] = {}
     for r in rows:
         r["reasons"] = json.loads(r["reasons"]) if r["reasons"] else []
+        g = by_seller.setdefault(r["seller_lead_id"], {
+            "seller_lead_id": r["seller_lead_id"], "name": r["seller_name"],
+            "score": r["seller_score"], "mc_number": r["mc_number"],
+            "dot_number": r["dot_number"], "price_usd": r["price_usd"],
+            "link": r["seller_link"], "alt_buyers": r["alt_buyers"],
+            "buyers": [], "best": 0,
+        })
+        g["buyers"].append(r)
+        g["best"] = max(g["best"], r["score"] or 0)
+
+    groups = sorted(by_seller.values(), key=lambda g: -g["best"])
+    for g in groups:
+        g["buyers"].sort(key=lambda r: -(r["score"] or 0))
+
     return tpl.TemplateResponse(request, "matches.html", {
-        "rows": rows, "page": "matches",
+        "groups": groups, "n_pairs": len(rows), "page": "matches",
     })
 
 

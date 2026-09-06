@@ -1,115 +1,111 @@
 {% extends "base.html" %}
+{% block title %}Activity{% endblock %}
+
 {% block content %}
 
-<div class="bg-white border border-slate-200 rounded-lg p-3 mb-4">
-  <h2 class="font-semibold mb-2">Yangilanishlar tarixi</h2>
-  <p class="text-slate-500 mb-3">
-    Har bir yurish 6 bosqichdan iborat. Bosqich tushsa qolgani davom etadi —
-    shuning uchun <b>qisman</b> holat ham bo'lishi mumkin.
-  </p>
-
-  <table class="w-full">
-    <tr class="text-slate-400 text-[10px] uppercase tracking-wider border-b">
-      <td class="pb-1">Qachon</td><td>Holat</td><td>Davomiyligi</td>
-      <td>Bosqichlar</td><td>Natija</td>
-    </tr>
-    {% for r in runs %}
-    {% set st = {'ok': ('✓','text-emerald-600'), 'partial': ('◐','text-amber-600'),
-                 'failed': ('✕','text-red-600'), 'running': ('◍','text-blue-600'),
-                 'stopped': ('■','text-slate-400')}.get(r.status, ('?','text-slate-400')) %}
-    <tr class="border-b border-slate-100 align-top">
-      <td class="py-1.5 pr-3 whitespace-nowrap tabular-nums text-slate-600">
-        {{ r.started_at|localtime }}</td>
-      <td class="py-1.5 pr-3 whitespace-nowrap">
-        <span class="{{ st[1] }} font-bold">{{ st[0] }}</span> {{ r.status }}</td>
-      <td class="py-1.5 pr-3 whitespace-nowrap tabular-nums text-slate-500">{{ r.duration|dur }}</td>
-      <td class="py-1.5 pr-3">
-        <div class="flex flex-wrap gap-1">
-        {% for s in r.steps %}
-          {% set c = {'ok': 'bg-emerald-100 text-emerald-800 border-emerald-200',
-                      'warn': 'bg-amber-100 text-amber-800 border-amber-200',
-                      'error': 'bg-red-100 text-red-800 border-red-200',
-                      'running': 'bg-blue-100 text-blue-800 border-blue-200'}.get(s.status, 'bg-slate-100 border-slate-200') %}
-          <span class="{{ c }} border rounded px-1.5 py-0.5 text-[11px] whitespace-nowrap"
-                title="{{ s.error or s.result or '' }}">
-            {{ STEP_LABELS.get(s.step, s.step) }}
-            {{ {'ok':'✓','warn':'!','error':'✕'}.get(s.status, '…') }}</span>
-        {% endfor %}
-        </div>
-      </td>
-      <td class="py-1.5 text-slate-600">
-        {% if r.last_error %}<span class="text-red-700">{{ r.last_error[:160] }}</span>
-        {% else %}
-          {% for s in r.steps if s.result and s.result != 'null' %}
-            <div class="text-[12px]"><span class="text-slate-400">{{ s.step }}:</span> {{ s.result[:100] }}</div>
-          {% endfor %}
-        {% endif %}
-      </td>
-    </tr>
-    {% else %}
-    <tr><td colspan="5" class="py-6 text-center text-slate-500">
-      Hali hech qanday yurish bo'lmagan. <code class="bg-slate-100 px-1.5 rounded">uv run mc loop</code>
-    </td></tr>
-    {% endfor %}
-  </table>
+<div class="title-row">
+  <h1 class="large">Activity</h1>
+  <span class="title-count">last {{ runs|length }} runs</span>
 </div>
 
-<div class="grid md:grid-cols-2 gap-4">
+<p style="color:var(--label-2);max-width:64ch;margin:0 0 18px">
+  Each run walks six steps. A step that fails does not stop the rest, so a run can
+  finish with problems and still deliver leads.
+</p>
 
-  <div class="bg-white border rounded p-3">
-    <h2 class="font-semibold mb-2">Tizim holati</h2>
-    <table class="w-full">
-      {% for k, v in h.items() %}
-      <tr class="border-b">
-        <td class="py-1 pr-2 text-slate-500">{{ k }}</td>
-        <td class="py-1 {{ 'text-red-600 font-semibold' if 'DEAD' in (v.value or '') else '' }}">{{ v.value }}</td>
-      </tr>
-      {% else %}<tr><td class="text-slate-500 py-2">Hali hech narsa yozilmagan.</td></tr>{% endfor %}
-    </table>
+<div class="group stagger">
+{% for r in runs %}
+  {% set st = {'ok': ('check-circle-2','var(--green)'), 'partial': ('alert-circle','var(--orange)'),
+               'failed': ('x-circle','var(--red)'), 'running': ('loader-2','var(--blue)'),
+               'stopped': ('pause-circle','var(--gray)')}.get(r.status, ('circle','var(--gray)')) %}
+  <div class="row">
+    <i data-lucide="{{ st[0] }}" class="{{ 'spin' if r.status == 'running' }}"
+       style="width:20px;height:20px;color:{{ st[1] }};flex:none;margin-top:2px"></i>
+
+    <div style="flex:1;min-width:0">
+      <div class="facts">
+        <span class="name" style="font-size:13.5px">{{ r.started_at|localtime }}</span>
+        <span class="meta">{{ r.duration|dur }} · {{ r.trigger }}</span>
+      </div>
+
+      <div class="facts" style="margin-top:6px">
+        {% for s in r.steps %}
+          {% set c = {'ok':'chip-green','warn':'chip-orange','error':'chip-red',
+                      'running':'chip-blue'}.get(s.status,'') %}
+          <span class="chip {{ c }}" title="{{ s.error or s.result or '' }}">
+            {{ STEP_LABELS.get(s.step, s.step) }}</span>
+        {% endfor %}
+      </div>
+
+      {% if r.last_error %}
+        <div style="margin-top:7px;color:var(--red);font-size:12.5px">{{ r.last_error[:200] }}</div>
+      {% else %}
+        {% for s in r.steps if s.result and s.result != 'null' %}
+          <div class="meta" style="margin-top:3px">
+            <span style="color:var(--label-3)">{{ s.step }}</span> {{ s.result[:110] }}</div>
+        {% endfor %}
+      {% endif %}
+    </div>
   </div>
+{% else %}
+  <div class="empty">
+    <i data-lucide="activity" style="width:34px;height:34px"></i>
+    <h3>No runs recorded</h3>
+    <p>Start the engine with <code>uv run mc start</code>.</p>
+  </div>
+{% endfor %}
+</div>
 
-  <div class="bg-white border rounded p-3">
-    <h2 class="font-semibold mb-2">Baza</h2>
-    <table class="w-full">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:20px">
+
+  <div class="card">
+    <h3>Database</h3>
+    <table class="kv">
       {% for k, v in counts.items() %}
-      <tr class="border-b"><td class="py-1 text-slate-500">{{ k }}</td>
-          <td class="py-1 text-right tabular-nums font-semibold">{{ v }}</td></tr>
+        <tr><td>{{ k }}</td><td class="num" style="text-align:right;font-weight:600">{{ v }}</td></tr>
       {% endfor %}
-    </table>
-    <h3 class="font-semibold mt-3 mb-1">Klassifikatsiya navbati</h3>
-    <table class="w-full">
       {% for s in stages %}
-      <tr class="border-b"><td class="py-1 text-slate-500">{{ s.stage }}</td>
-          <td class="py-1 text-right tabular-nums">{{ s.n }}</td></tr>
+        <tr><td style="color:var(--label-3)">queue · {{ s.stage }}</td>
+            <td class="num" style="text-align:right">{{ s.n }}</td></tr>
       {% endfor %}
     </table>
   </div>
 
-  <div class="bg-white border rounded p-3">
-    <h2 class="font-semibold mb-2">Groq sarfi</h2>
-    <table class="w-full">
-      <tr class="text-slate-500 text-[11px] uppercase">
-        <td>kun</td><td>key</td><td>model</td>
-        <td class="text-right">chaqiruv</td><td class="text-right">token</td></tr>
+  <div class="card">
+    <h3>Groq usage per key</h3>
+    <table class="kv">
       {% for u in usage %}
-      <tr class="border-b">
-        <td class="py-1">{{ u.day }}</td>
-        <td class="py-1 font-mono text-slate-500">{{ u.key_label }}</td>
-        <td class="py-1">{{ u.model.split('/')[-1] }}</td>
-        <td class="py-1 text-right tabular-nums">{{ u.calls }}</td>
-        <td class="py-1 text-right tabular-nums">{{ '{:,}'.format(u.prompt_tokens + u.completion_tokens) }}</td>
+      <tr>
+        <td><span class="mono">{{ u.key_label }}</span>
+            <span style="color:var(--label-3)">{{ u.model.split('/')[-1] }}</span>
+            <div class="meta">{{ u.day }} · {{ u.calls }} calls</div></td>
+        <td class="num" style="text-align:right;font-weight:600">
+          {{ '{:,}'.format(u.prompt_tokens + u.completion_tokens) }}</td>
       </tr>
-      {% endfor %}
+      {% else %}<tr><td colspan="2" style="color:var(--label-3)">Nothing used yet.</td></tr>{% endfor %}
     </table>
   </div>
 
-  <div class="bg-white border rounded p-3">
-    <h2 class="font-semibold mb-2">Xatolar</h2>
-    {% for e in errors %}
-      <div class="border-b py-1"><code class="text-slate-500">{{ e.source_id }}</code>
-        <div class="text-red-700">{{ e.error }}</div></div>
-    {% else %}<div class="text-slate-500">Xato yo'q.</div>{% endfor %}
+  <div class="card">
+    <h3>System</h3>
+    <table class="kv">
+      {% for k, v in h.items() %}
+        <tr><td>{{ k }}</td>
+            <td style="{{ 'color:var(--red);font-weight:600' if 'DEAD' in (v.value or '') }}">{{ v.value }}</td></tr>
+      {% else %}<tr><td colspan="2" style="color:var(--label-3)">Nothing recorded.</td></tr>{% endfor %}
+    </table>
   </div>
 
+  {% if errors %}
+  <div class="card">
+    <h3>Analysis errors</h3>
+    {% for e in errors %}
+      <div style="padding:6px 0;border-bottom:.5px solid var(--separator)">
+        <span class="mono meta">{{ e.source_id }}</span>
+        <div style="color:var(--red);font-size:12.5px">{{ e.error }}</div>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
