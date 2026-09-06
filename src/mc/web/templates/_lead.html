@@ -5,7 +5,7 @@
   {% set t = tier(score)|trim %}
   {% set c = {'hot': 'bg-emerald-600', 'warm': 'bg-amber-500', 'cold': 'bg-slate-400'}[t] %}
   <span class="{{ 'bg-slate-300' if score is none else c }} text-white font-bold rounded-md w-11 h-11 flex flex-col items-center justify-center leading-none shrink-0"
-        {% if score is none %}title="Hali hisoblanmagan"{% endif %}>
+        {% if score is none %}title="Ball hali hisoblanmagan — yangi topilgan lead. Keyingi siklda (bir necha daqiqada) o'zi hisoblanadi."{% endif %}>
     <span class="text-[15px] tabular-nums">{{ '…' if score is none else score }}</span>
     <span class="text-[9px] font-medium opacity-80 uppercase tracking-wide">ball</span>
   </span>
