@@ -11,18 +11,32 @@ from .browser import SessionDead, check_alive, human_scroll, pause
 from .graphql_tap import GraphQLTap
 
 
+def _known_ids(group_id: str) -> set[str]:
+    with db.connect() as conn:
+        return {r["post_id"] for r in conn.execute(
+            "SELECT post_id FROM posts WHERE group_id = ?", (group_id,))}
+
+
 def sweep_feed(
     ctx: BrowserContext,
     group_id: str,
     cfg: dict,
     since_ts: float,
     dry_run: bool = False,
+    full: bool = False,
 ) -> dict:
     """Feed'ni scroll qilib yangi postlarni yig'adi.
 
-    Qaytaradi: {"seen": n, "new": n, "oldest": ts}
+    Odatiy rejimda **inkremental**: bir necha scroll ketma-ket yangi post bermasa
+    to'xtaydi. Har 15 daqiqada 40 marta scroll qilish shart emas -- postlarning
+    95% i allaqachon bazada. Kamroq scroll = akkaunt uchun kamroq yuk.
+
+    `full=True` -- chuqur skan, erta to'xtamaydi (backfill uchun).
     """
     c = cfg["collect"]
+    known = set() if full else _known_ids(group_id)
+    quiet_limit = c.get("stop_after_quiet_scrolls", 3)
+    quiet = 0
     page = ctx.new_page()
     tap = GraphQLTap()
     tap.attach(page)
@@ -36,19 +50,35 @@ def sweep_feed(
     oldest = time.time()
     raw_batches: list = []
 
+    scrolls = 0
     for i in range(c["max_scrolls_per_run"]):
         human_scroll(page, c["scroll_pause_seconds"])
+        scrolls = i + 1
         batch = tap.drain()
+
+        fresh_this_scroll = 0
         if batch:
             raw_batches.extend(batch)
             for payload in batch:
                 for p in normalize.extract_posts(payload, group_id):
-                    all_posts.setdefault(p["post_id"], p)
-                    oldest = min(oldest, p["created_at"])
+                    if p["post_id"] not in all_posts:
+                        all_posts[p["post_id"]] = p
+                        if p["post_id"] not in known:
+                            fresh_this_scroll += 1
+                    if p["created_at"]:
+                        oldest = min(oldest, p["created_at"])
 
         # backfill chegarasidan o'tdikmi?
         if oldest < since_ts and all_posts:
             break
+
+        # Inkremental to'xtash: ketma-ket bir necha scroll yangilik bermasa,
+        # demak feed'ning ko'rgan qismiga yetdik.
+        if not full:
+            quiet = 0 if fresh_this_scroll else quiet + 1
+            if quiet >= quiet_limit and all_posts:
+                break
+
         if i % 5 == 4:
             check_alive(page)
 
@@ -90,6 +120,7 @@ def sweep_feed(
         fresh.append(p)
 
     result = {
+        "scrolls": scrolls,
         "seen": len(all_posts),
         "fresh": len(fresh),
         "skipped_short": skipped,

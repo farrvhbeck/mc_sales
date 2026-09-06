@@ -114,7 +114,10 @@ Ikkita buyruq, tamom.
 uv run mc start
 ```
 
-Bu ikkalasini ham fonda ishga tushiradi — dvigatel (har 10 daqiqada yangi post
+Har safar ishga tushganda ko'rinadigan Chromium oynasi ochiladi, guruhlarni
+scroll qiladi va yopiladi — bu normal, dastur shunday ishlaydi.
+
+Bu ikkalasini ham fonda ishga tushiradi — dvigatel (har 15 daqiqada yangi post
 qidiradi, tahlil qiladi, Telegramga yuboradi) va dashboard. Terminalni yopsangiz
 ham ishlashda davom etadi.
 

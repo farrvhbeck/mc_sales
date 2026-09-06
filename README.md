@@ -47,6 +47,7 @@ uv run mc stop        # hammasini to'xtatadi (chromium bilan birga)
 uv run mc serve       # faqat dashboard -> http://127.0.0.1:8000
 uv run mc loop        # faqat dvigatel, har 10 daqiqada
 uv run mc ingest-raw  # xom JSON'dan bazaga qayta yuklash (FB'ga bormasdan)
+uv run mc collect --full   # chuqur skan (odatda inkremental)
 uv run mc stats       # qisqacha holat
 uv run mc runs        # oxirgi yangilanishlar va ular muvaffaqiyatli bo'lganmi
 uv run mc reprocess   # klassifikatsiyani noldan (qayta scrape qilmasdan)
@@ -60,6 +61,11 @@ Shuning uchun `POST /api/graphql/` javoblari ushlanadi — strukturali JSON, to'
 `creation_time`, kesilmagan matn. `normalize.py` qattiq yo'l ishlatmaydi: butun JSON
 daraxti bo'ylab yurib "post'ga o'xshash" tugunlarni signal bo'yicha topadi, shuning
 uchun FB shaklni o'zgartirsa ham ishlashda davom etadi. DOM fallback ham bor.
+
+**Yig'ish inkremental.** Har siklda 40 marta scroll qilish shart emas — postlarning
+95% i allaqachon bazada. Ketma-ket 3 ta scroll yangi post bermasa to'xtaydi
+(amalda 2–3 scroll). Bu akkaunt uchun yukni ~20 barobar kamaytiradi.
+Butun tarixni qayta olish uchun `mc collect --full`.
 
 **Xom JSON saqlanadi** (`data/raw/`). Klassifikator yoki ball o'zgarsa — `mc reprocess`,
 qayta scrape kerak emas.

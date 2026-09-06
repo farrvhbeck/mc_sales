@@ -75,8 +75,13 @@ def collect(
     since_days: int = typer.Option(None, help="Necha kunlik tarix"),
     comments: bool = typer.Option(None, help="Comment yig'ish (default: config.yaml)"),
     dry_run: bool = typer.Option(False, help="Bazaga yozmaydi"),
+    full: bool = typer.Option(False, help="Chuqur skan — tanish postda to'xtamaydi"),
 ):
-    """FB guruhidan post va comment yig'adi."""
+    """FB guruhidan post va comment yig'adi.
+
+    Odatda inkremental: tanish postlarga yetganda to'xtaydi. Butun tarixni
+    qaytadan olish uchun `--full`.
+    """
     from . import runs
     from .collect.browser import SessionDead, browser
     from .collect.feed import sweep_feed
@@ -97,7 +102,7 @@ def collect(
             with browser(headless=cfg["collect"]["headless"]) as ctx:
                 for g in groups:
                     typer.echo(f"→ {g['name']} ({days} kun)")
-                    res = sweep_feed(ctx, g["id"], cfg, since_ts, dry_run=dry_run)
+                    res = sweep_feed(ctx, g["id"], cfg, since_ts, dry_run=dry_run, full=full)
                     out[g["id"]] = res
                     typer.echo(f"  feed: {res}")
 

@@ -27,10 +27,13 @@ collect:
   # Rasmli postlar hozircha o'tkazib yuboriladi (OCR keyingi versiyada).
   min_text_chars: 25
   backfill_days: 7
-  poll_interval_minutes: 10
+  poll_interval_minutes: 15
   # Insonga o'xshash xatti-harakat -- FB checkpoint qo'ymasligi uchun
   scroll_pause_seconds: [2.0, 5.0]     # tasodifiy oraliq
-  max_scrolls_per_run: 40
+  max_scrolls_per_run: 40          # qattiq chegara
+  # Inkremental to'xtash: shuncha scroll ketma-ket yangi post bermasa to'xtaydi.
+  # Odatda 5-10 scroll yetadi -- 40 emas. `mc collect --full` buni chetlab o'tadi.
+  stop_after_quiet_scrolls: 3
   post_open_pause_seconds: [3.0, 7.0]  # comment yig'ish uchun post ochish orasida
   max_posts_per_run: 30
   headless: false                       # headful -- ban riski pastroq
