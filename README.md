@@ -41,9 +41,12 @@ uv run mc enrich      # MC/DOT ni FMCSA bo'yicha tekshirish
 uv run mc score       # ball
 uv run mc match       # buyer ↔ seller
 uv run mc notify      # Telegram (--dry-run bilan sinash mumkin)
-uv run mc serve       # dashboard -> http://127.0.0.1:8000
-uv run mc loop        # hammasi, har 10 daqiqada
-uv run mc stop        # ishlayotgan loop/serve ni to'xtatadi (yoki Ctrl+C)
+uv run mc start       # HAMMASI fonda: dvigatel + dashboard
+uv run mc stop        # hammasini to'xtatadi (chromium bilan birga)
+
+uv run mc serve       # faqat dashboard -> http://127.0.0.1:8000
+uv run mc loop        # faqat dvigatel, har 10 daqiqada
+uv run mc ingest-raw  # xom JSON'dan bazaga qayta yuklash (FB'ga bormasdan)
 uv run mc stats       # qisqacha holat
 uv run mc runs        # oxirgi yangilanishlar va ular muvaffaqiyatli bo'lganmi
 uv run mc reprocess   # klassifikatsiyani noldan (qayta scrape qilmasdan)

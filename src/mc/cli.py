@@ -405,6 +405,82 @@ def runs_(limit: int = 10):
             typer.echo(line)
 
 
+def _alive(name: str) -> int | None:
+    """Pidfile'dagi jarayon tirikmi? Tirik bo'lsa pid qaytaradi."""
+    import os
+
+    path = db.DATA / f"{name}.pid"
+    if not path.exists():
+        return None
+    try:
+        pid = int(path.read_text().strip())
+        os.kill(pid, 0)
+        return pid
+    except (ValueError, ProcessLookupError):
+        path.unlink(missing_ok=True)
+        return None
+    except PermissionError:
+        return pid
+
+
+@app.command()
+def start(
+    port: int = typer.Option(8000, help="Dashboard porti"),
+    web: bool = typer.Option(True, help="Dashboard ham ishga tushsinmi"),
+    engine: bool = typer.Option(True, help="Dvigatel (loop) ham ishga tushsinmi"),
+):
+    """Hammasini fonda ishga tushiradi: dvigatel + dashboard.
+
+    Terminalni yopsangiz ham ishlashda davom etadi. To'xtatish: `mc stop`.
+    """
+    import subprocess
+    import sys
+
+    db.init()
+    db.DATA.mkdir(parents=True, exist_ok=True)
+
+    plan = []
+    if engine:
+        plan.append(("loop", ["loop"], "dvigatel"))
+    if web:
+        plan.append(("web", ["serve", "--port", str(port)], "dashboard"))
+
+    started, running = [], []
+    for name, args, label in plan:
+        pid = _alive(name)
+        if pid:
+            running.append(f"{label} (pid {pid})")
+            continue
+        log = db.DATA / f"{name}.log"
+        with open(log, "a") as fh:
+            subprocess.Popen(
+                [sys.executable, "-m", "mc.cli", *args],
+                stdout=fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                start_new_session=True,   # terminal yopilsa ham o'lmasin
+                cwd=str(db.ROOT),
+            )
+        started.append((name, label, log))
+
+    # Bola pidfile yozguncha kutamiz
+    for _ in range(30):
+        if all(_alive(n) for n, _, _ in started):
+            break
+        time.sleep(0.2)
+
+    for name, label, log in started:
+        pid = _alive(name)
+        if pid:
+            typer.echo(f"✅ {label} ishga tushdi (pid {pid}) — log: {log}")
+        else:
+            typer.echo(f"❌ {label} ishga tushmadi. Sababi: {log}")
+    for r in running:
+        typer.echo(f"ℹ️  {r} allaqachon ishlayapti")
+
+    if web and _alive("web"):
+        typer.echo(f"\n   Dashboard:  http://127.0.0.1:{port}")
+    typer.echo("   To'xtatish: uv run mc stop")
+
+
 @app.command()
 def stop():
     """Ishlayotgan `mc loop` va `mc serve` ni to'xtatadi."""
@@ -422,8 +498,17 @@ def stop():
             path.unlink(missing_ok=True)
             continue
 
+        # `mc start` jarayonni alohida sessiyada ochadi, ya'ni u guruh yetakchisi.
+        # Butun guruhga signal yuboramiz -- aks holda Playwright ochgan Chromium
+        # yetim bo'lib qoladi.
+        def _signal(sig):
+            try:
+                os.killpg(os.getpgid(pid), sig)
+            except (ProcessLookupError, PermissionError, OSError):
+                os.kill(pid, sig)
+
         try:
-            os.kill(pid, signal.SIGTERM)
+            _signal(signal.SIGTERM)
         except ProcessLookupError:
             path.unlink(missing_ok=True)   # eskirgan pid fayli
             continue
@@ -439,8 +524,8 @@ def stop():
             except ProcessLookupError:
                 break
         else:
-            with __import__("contextlib").suppress(OSError):
-                os.kill(pid, signal.SIGKILL)
+            with __import__("contextlib").suppress(OSError, ProcessLookupError):
+                _signal(signal.SIGKILL)
 
         path.unlink(missing_ok=True)
         stopped.append(f"{label} (pid {pid})")

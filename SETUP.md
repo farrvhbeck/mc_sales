@@ -101,53 +101,54 @@ uv run mc notify --dry-run
 
 ## Kundalik ishlatish
 
-Ikkita terminal ochiq turadi.
+Ikkita buyruq, tamom.
 
-**Terminal 1 — dvigatel.** Har 10 daqiqada yangi post qidiradi, tahlil qiladi,
-Telegramga yuboradi:
-
-```bash
-uv run mc loop
-```
-
-**Terminal 2 — dashboard:**
+**Ishga tushirish:**
 
 ```bash
-uv run mc serve
+uv run mc start
 ```
+
+Bu ikkalasini ham fonda ishga tushiradi — dvigatel (har 10 daqiqada yangi post
+qidiradi, tahlil qiladi, Telegramga yuboradi) va dashboard. Terminalni yopsangiz
+ham ishlashda davom etadi.
 
 Brauzerda: **http://127.0.0.1:8000**
 
-Laptopni yopsangiz to'xtaydi, ochsangiz `mc loop` ni qayta ishga tushirasiz.
-Yo'qolgan vaqt uchun xavotir kerak emas — u oxirgi 7 kunlik postlarni ko'radi,
-allaqachon ko'rilganini takrorlamaydi.
-
-### To'xtatish
-
-Terminal ochiq bo'lsa — **Ctrl+C**. Ikkalasi ham tinch to'xtaydi, ma'lumot yo'qolmaydi.
-
-Terminal ko'rinmayotgan bo'lsa (tmux'da yoki fonda) — **boshqa terminaldan**:
+**To'xtatish:**
 
 ```bash
 uv run mc stop
 ```
 
-Bu `mc loop` va `mc serve` ikkalasini ham to'xtatadi. Brauzer ham to'g'ri yopiladi.
+Ikkinchi marta `mc start` qilsangiz takrorlamaydi — "allaqachon ishlayapti" deydi.
+Loglar: `data/loop.log` va `data/web.log`.
 
-To'xtatish xavfsiz — yig'ilgan post, lead, status va eslatmalar bazada qoladi.
-`uv run mc loop` bilan qayta boshlaganda qoldigidan davom etadi, boshidan
-qidirmaydi.
+Laptopni yopsangiz to'xtaydi, ochsangiz `mc loop` ni qayta ishga tushirasiz.
+Yo'qolgan vaqt uchun xavotir kerak emas — u oxirgi 7 kunlik postlarni ko'radi,
+allaqachon ko'rilganini takrorlamaydi.
 
-### Fonda ishlatish (terminal yopilsa ham davom etsin)
+### To'xtatish haqida
+
+`uv run mc stop` dvigatelni ham, dashboardni ham to'xtatadi va Playwright ochgan
+Chromium'ni ham yopadi — yetim jarayon qolmaydi.
+
+To'xtatish xavfsiz: yig'ilgan post, lead, status va eslatmalar bazada qoladi.
+`mc start` bilan qayta boshlaganda qoldigidan davom etadi, boshidan qidirmaydi.
+
+Faqat bittasi kerak bo'lsa:
 
 ```bash
-# Linux
-sudo apt install tmux
-tmux new -s mc
-uv run mc loop
-# Ctrl+B keyin D bosib chiqing.
-# Qaytish:     tmux attach -t mc
-# To'xtatish:  uv run mc stop
+uv run mc start --no-web      # faqat dvigatel
+uv run mc start --no-engine   # faqat dashboard
+uv run mc start --port 8080   # boshqa port
+```
+
+Nima bo'layotganini ko'rish:
+
+```bash
+uv run mc runs                # oxirgi yangilanishlar muvaffaqiyatli bo'lganmi
+tail -f data/loop.log         # jonli log
 ```
 
 ---
