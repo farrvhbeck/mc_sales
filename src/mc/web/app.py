@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import time
 from pathlib import Path
 
@@ -13,11 +14,38 @@ from fastapi.templating import Jinja2Templates
 
 from .. import db, runs
 from ..enrich import fmcsa
+from . import auth
 
 BASE = Path(__file__).parent
 app = FastAPI(title="MC Lead Engine")
 tpl = Jinja2Templates(directory=str(BASE / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
+# Parol faqat DASHBOARD_PASSWORD berilganda talab qilinadi.
+app.add_middleware(auth.AuthMiddleware)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request):
+    if not auth.password():
+        return RedirectResponse("/", status_code=303)
+    return auth.login_page(request.query_params.get("next", "/"))
+
+
+@app.post("/login")
+def login_submit(password: str = Form(""), next: str = Form("/")):
+    secret = auth.password()
+    if not secret:
+        return RedirectResponse("/", status_code=303)
+    if secrets.compare_digest(password, secret):
+        return auth.sign_in(secret, next)
+    return auth.login_page(next, error=True)
+
+
+@app.post("/logout")
+def logout():
+    r = RedirectResponse("/login", status_code=303)
+    r.delete_cookie(auth.COOKIE)
+    return r
 
 LEAD_SELECT = """
 SELECT l.*, pe.name AS person_name, pe.profile_url, pe.is_suspected_reseller,

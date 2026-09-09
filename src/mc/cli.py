@@ -459,7 +459,7 @@ def start(
 
     plan = []
     if engine:
-        plan.append(("loop", ["loop"], "dvigatel"))
+        plan.append(("loop", ["loop"], "engine"))
     if web:
         plan.append(("web", ["serve", "--port", str(port)], "dashboard"))
 
@@ -500,13 +500,96 @@ def start(
 
 
 @app.command()
+def share(port: int = typer.Option(8000, help="Dashboard porti"),
+          wait: int = typer.Option(90, help="Havola uchun necha soniya kutilsin")):
+    """Dashboardni internetga chiqaradi va havolani beradi.
+
+    Cloudflare tunnel ishlatiladi -- akkaunt kerak emas, router sozlash kerak emas.
+    Parol majburiy: himoyasiz dashboard internetga chiqarilmaydi.
+    """
+    import os
+    import re
+    import subprocess
+    import sys
+
+    from .web import auth
+
+    db.init()
+
+    # 1) Parolsiz chiqarmaymiz
+    if not auth.password():
+        pw = auth.new_password()
+        env = db.ROOT / ".env"
+        text = env.read_text() if env.exists() else ""
+        if "DASHBOARD_PASSWORD" not in text:
+            env.write_text(text.rstrip("\n") + f"\n\n# Dashboard'ga kirish paroli\nDASHBOARD_PASSWORD={pw}\n")
+        typer.echo(f"Parol yaratildi va .env ga yozildi:\n\n    {pw}\n")
+        os.environ["DASHBOARD_PASSWORD"] = pw
+    else:
+        typer.echo(f"Mavjud parol ishlatiladi (.env dagi DASHBOARD_PASSWORD).\n")
+
+    # 2) Dashboard ishlayotganini ta'minlaymiz
+    if not _alive("web"):
+        typer.echo("Dashboard ishga tushirilyapti…")
+        log = db.DATA / "web.log"
+        with open(log, "a") as fh:
+            subprocess.Popen(
+                [sys.executable, "-m", "mc.cli", "serve", "--port", str(port)],
+                stdout=fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                start_new_session=True, cwd=str(db.ROOT),
+            )
+        for _ in range(40):
+            time.sleep(0.25)
+            if _alive("web"):
+                break
+
+    # 3) Tunnel
+    binary = db.ROOT / "bin" / "cloudflared"
+    if not binary.exists():
+        typer.echo("bin/cloudflared topilmadi. Yuklab oling:\n"
+                   "  curl -Lo bin/cloudflared https://github.com/cloudflare/cloudflared/"
+                   "releases/latest/download/cloudflared-linux-amd64 && chmod +x bin/cloudflared")
+        raise typer.Exit(1)
+
+    log = db.DATA / "tunnel.log"
+    log.write_text("")
+    typer.echo("Tunnel ochilyapti…")
+    with open(log, "a") as fh:
+        proc = subprocess.Popen(
+            [str(binary), "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"],
+            stdout=fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+            start_new_session=True, cwd=str(db.ROOT),
+        )
+    (db.DATA / "tunnel.pid").write_text(str(proc.pid))
+
+    url = None
+    deadline = time.time() + wait
+    while time.time() < deadline and url is None:
+        time.sleep(1)
+        m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", log.read_text())
+        if m:
+            url = m.group(0)
+
+    if not url:
+        typer.echo(f"Havola {wait}s ichida chiqmadi. Log: {log}")
+        raise typer.Exit(1)
+
+    typer.echo("\n" + "─" * 56)
+    typer.echo(f"  Havola:  {url}")
+    typer.echo(f"  Parol:   {os.environ['DASHBOARD_PASSWORD']}")
+    typer.echo("─" * 56)
+    typer.echo("\nTunnel fonda ishlayapti. To'xtatish: uv run mc stop")
+    typer.echo("Diqqat: bu havola shu kompyuter yoniq turgandagina ishlaydi.")
+
+
+@app.command()
 def stop():
-    """Ishlayotgan `mc loop` va `mc serve` ni to'xtatadi."""
+    """Ishlayotgan `mc loop`, `mc serve` va tunnel'ni to'xtatadi."""
     import os
     import signal
 
     stopped = []
-    for name, label in [("loop", "dvigatel"), ("web", "dashboard")]:
+    for name, label in [("loop", "engine"), ("web", "dashboard"), ("tunnel", "tunnel")]:
         path = db.DATA / f"{name}.pid"
         if not path.exists():
             continue
