@@ -501,7 +501,8 @@ def start(
 
 @app.command()
 def share(port: int = typer.Option(8000, help="Dashboard porti"),
-          wait: int = typer.Option(90, help="Havola uchun necha soniya kutilsin")):
+          wait: int = typer.Option(90, help="Havola uchun necha soniya kutilsin"),
+          keep_alive: bool = typer.Option(True, help="Tunnel uzilsa o'zi qayta ochsin")):
     """Dashboardni internetga chiqaradi va havolani beradi.
 
     Cloudflare tunnel ishlatiladi -- akkaunt kerak emas, router sozlash kerak emas.
@@ -544,42 +545,184 @@ def share(port: int = typer.Option(8000, help="Dashboard porti"),
                 break
 
     # 3) Tunnel
-    binary = db.ROOT / "bin" / "cloudflared"
-    if not binary.exists():
+    if not (db.ROOT / "bin" / "cloudflared").exists():
         typer.echo("bin/cloudflared topilmadi. Yuklab oling:\n"
                    "  curl -Lo bin/cloudflared https://github.com/cloudflare/cloudflared/"
                    "releases/latest/download/cloudflared-linux-amd64 && chmod +x bin/cloudflared")
         raise typer.Exit(1)
 
-    log = db.DATA / "tunnel.log"
-    log.write_text("")
     typer.echo("Tunnel ochilyapti…")
-    with open(log, "a") as fh:
-        proc = subprocess.Popen(
-            [str(binary), "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"],
-            stdout=fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-            start_new_session=True, cwd=str(db.ROOT),
-        )
-    (db.DATA / "tunnel.pid").write_text(str(proc.pid))
-
-    url = None
-    deadline = time.time() + wait
-    while time.time() < deadline and url is None:
-        time.sleep(1)
-        m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", log.read_text())
-        if m:
-            url = m.group(0)
-
+    url = _start_tunnel(port, wait)
     if not url:
-        typer.echo(f"Havola {wait}s ichida chiqmadi. Log: {log}")
+        typer.echo(f"Havola {wait}s ichida chiqmadi. Log: {db.DATA / 'tunnel.log'}")
         raise typer.Exit(1)
+
+    # 4) Kuzatuvchi: bepul tunnel ogohlantirishsiz uziladi, uni tiklab turamiz
+    if keep_alive and not _alive("tunwatch"):
+        with open(db.DATA / "tunwatch.log", "a") as fh:
+            subprocess.Popen(
+                [sys.executable, "-m", "mc.cli", "tunnel-watch", "--port", str(port)],
+                stdout=fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                start_new_session=True, cwd=str(db.ROOT),
+            )
+        for _ in range(20):
+            time.sleep(0.25)
+            if _alive("tunwatch"):
+                break
 
     typer.echo("\n" + "─" * 56)
     typer.echo(f"  Havola:  {url}")
     typer.echo(f"  Parol:   {os.environ['DASHBOARD_PASSWORD']}")
     typer.echo("─" * 56)
+    if _alive("tunwatch"):
+        typer.echo("\n  Kuzatuvchi yoqilgan — tunnel uzilsa o'zi qayta ochadi.")
+        typer.echo("  Havola o'zgarsa `uv run mc link` ko'rsatadi.")
     typer.echo("\nTunnel fonda ishlayapti. To'xtatish: uv run mc stop")
     typer.echo("Diqqat: bu havola shu kompyuter yoniq turgandagina ishlaydi.")
+
+
+def _start_tunnel(port: int, wait: int = 90, attempts: int = 3) -> str | None:
+    """cloudflared'ni ishga tushirib, ISHLAYOTGAN havolani qaytaradi.
+
+    Havolani logdan olish yetarli emas: Cloudflare chekkasi hostname'ni tunnel
+    bilan bog'laguncha bir necha soniya ketadi, va ba'zan umuman bog'lamaydi
+    (HTTP 530). Shuning uchun qaytarishdan oldin havolani sinab ko'ramiz va
+    ishlamasa yangi tunnel bilan qaytadan urinamiz.
+    """
+    import contextlib
+    import os
+    import re
+    import signal
+    import subprocess
+
+    binary = db.ROOT / "bin" / "cloudflared"
+    if not binary.exists():
+        return None
+
+    log = db.DATA / "tunnel.log"
+    pidfile = db.DATA / "tunnel.pid"
+
+    def _kill_existing():
+        if not pidfile.exists():
+            return
+        with contextlib.suppress(Exception):
+            pid = int(pidfile.read_text())
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+        pidfile.unlink(missing_ok=True)
+        time.sleep(3)
+
+    for attempt in range(1, attempts + 1):
+        _kill_existing()
+        log.write_text("")
+        with open(log, "a") as fh:
+            proc = subprocess.Popen(
+                [str(binary), "tunnel", "--no-autoupdate",
+                 "--url", f"http://127.0.0.1:{port}"],
+                stdout=fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                start_new_session=True, cwd=str(db.ROOT),
+            )
+        pidfile.write_text(str(proc.pid))
+
+        url = None
+        deadline = time.time() + wait
+        while time.time() < deadline and url is None:
+            time.sleep(1)
+            m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", log.read_text())
+            if m:
+                url = m.group(0)
+
+        # Havola chiqdi -- endi u haqiqatan javob berishini kutamiz
+        if url:
+            ready = time.time() + 75
+            while time.time() < ready:
+                if _tunnel_ok(url):
+                    with db.connect() as conn:
+                        db.set_health(conn, "share_url", url)
+                    return url
+                time.sleep(3)
+            typer.echo(f"  urinish {attempt}: {url} javob bermadi, yangisi ochilyapti")
+
+    return None
+
+
+def _tunnel_ok(url: str) -> bool:
+    import httpx
+
+    try:
+        r = httpx.get(f"{url}/login", timeout=20, follow_redirects=False)
+        return r.status_code < 500
+    except Exception:
+        return False
+
+
+@app.command("tunnel-watch")
+def tunnel_watch(port: int = 8000, every: int = 60):
+    """Tunnel tirikligini kuzatadi va o'lsa qayta ochadi.
+
+    Cloudflare'ning bepul tunneli ogohlantirishsiz uzilib qoladi. Bu jarayon
+    har daqiqada havolani tekshiradi; javob bermasa yangisini ochadi va
+    Telegram sozlangan bo'lsa yangi havolani yuboradi.
+    """
+    import os
+    import signal
+
+    from .notify import telegram
+
+    db.init()
+
+    def _term(_s, _f):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, _term)
+
+    with _pidfile("tunwatch"):
+        try:
+            while True:
+                with db.connect() as conn:
+                    row = conn.execute(
+                        "SELECT value FROM health WHERE key = 'share_url'").fetchone()
+                url = row["value"] if row else None
+
+                if not url or not _tunnel_ok(url):
+                    typer.echo(f"[{time.strftime('%H:%M:%S')}] tunnel javob bermadi — qayta ochilyapti")
+                    old = db.DATA / "tunnel.pid"
+                    if old.exists():
+                        with __import__("contextlib").suppress(Exception):
+                            os.killpg(os.getpgid(int(old.read_text())), signal.SIGTERM)
+                    new = _start_tunnel(port)
+                    if new:
+                        typer.echo(f"[{time.strftime('%H:%M:%S')}] yangi havola: {new}")
+                        if new != url:
+                            telegram.alert(
+                                f"Dashboard havolasi o'zgardi:\n{new}\n\n"
+                                f"Eskisi ishlamay qoldi.")
+                    else:
+                        typer.echo("qayta ochib bo'lmadi — keyingi urinish")
+                time.sleep(every)
+        except KeyboardInterrupt:
+            typer.echo("\nKuzatuv to'xtatildi.")
+
+
+@app.command()
+def link():
+    """Hozirgi havolani ko'rsatadi va ishlayotganini tekshiradi."""
+    from .web import auth
+
+    db.init()
+    with db.connect() as conn:
+        row = conn.execute("SELECT value FROM health WHERE key = 'share_url'").fetchone()
+    url = row["value"] if row else None
+    if not url:
+        typer.echo("Havola yo'q. `uv run mc share` bilan oching.")
+        raise typer.Exit(1)
+
+    ok = _tunnel_ok(url)
+    typer.echo(f"  {url}   {'✅ ishlayapti' if ok else '❌ javob bermayapti'}")
+    if auth.password():
+        typer.echo(f"  Parol: {auth.password()}")
+    if not ok:
+        typer.echo("\n`uv run mc share` bilan yangisini oching.")
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -589,7 +732,8 @@ def stop():
     import signal
 
     stopped = []
-    for name, label in [("loop", "engine"), ("web", "dashboard"), ("tunnel", "tunnel")]:
+    for name, label in [("loop", "engine"), ("web", "dashboard"),
+                        ("tunwatch", "tunnel watchdog"), ("tunnel", "tunnel")]:
         path = db.DATA / f"{name}.pid"
         if not path.exists():
             continue

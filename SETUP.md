@@ -136,6 +136,35 @@ Laptopni yopsangiz to'xtaydi, ochsangiz `mc loop` ni qayta ishga tushirasiz.
 Yo'qolgan vaqt uchun xavotir kerak emas — u oxirgi 7 kunlik postlarni ko'radi,
 allaqachon ko'rilganini takrorlamaydi.
 
+### Do'stingizga havola berish
+
+```bash
+uv run mc share
+```
+
+Cloudflare tunnel orqali internetga chiqaradi va **ishlashi tekshirilgan** havolani
+beradi. Parol majburiy — parolsiz dashboard internetga chiqmaydi (parol bo'lmasa
+o'zi yaratib `.env` ga yozadi).
+
+Havolani unutgan bo'lsangiz:
+
+```bash
+uv run mc link      # hozirgi havola + parol, ishlayotgani tekshiriladi
+```
+
+Uchta cheklov, oldindan bilib qo'ying:
+
+1. **Havola faqat shu kompyuter yoniq turganda ishlaydi.** Tunnel ham, dashboard
+   ham, dvigatel ham shu yerda.
+2. **Bepul tunnel manzili har safar o'zgaradi.** `mc share` qayta ishga tushirilsa
+   yangi manzil beriladi. Kuzatuvchi tunnel uzilsa o'zi tiklaydi, lekin manzil
+   yangisi bo'ladi — Telegram sozlangan bo'lsa yangi havolani yuboradi.
+3. **Ma'lumot faqat sizda yangilanadi.** Do'stingiz ko'radi va status o'zgartiradi,
+   lekin yangi leadlar siz `mc start` qilib turganingizda keladi.
+
+Doimiy manzil kerak bo'lsa: Cloudflare akkaunt + o'z domeningiz (named tunnel),
+yoki kichik VPS.
+
 ### To'xtatish haqida
 
 `uv run mc stop` dvigatelni ham, dashboardni ham to'xtatadi va Playwright ochgan
