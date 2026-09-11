@@ -36,6 +36,20 @@
   </div>
 </div>
 
+{% if linked %}
+<div class="card" style="margin-bottom:20px;border-left:3px solid var(--orange)">
+  <h3><i data-lucide="shield-alert" style="width:15px;height:15px"></i> Linked accounts</h3>
+  <p class="meta" style="margin:2px 0 10px">These accounts post the same phone or email.
+     One person, several profiles — or a stolen contact.</p>
+  {% for a in linked %}
+    <div style="padding:4px 0">
+      <a href="/people/{{ a.person_id }}">{{ a.name or a.person_id }}</a>
+      <span class="meta">· same {{ a.kind }}</span>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 <p class="section-label">History · {{ leads|length }}</p>
 
 <div class="group stagger">
@@ -49,6 +63,9 @@
         {% if r.price_usd %}<span class="money">{{ r.price_usd|money }}</span>{% endif %}
         {% if r.mc_number %}<span class="chip"><span class="mono">MC {{ r.mc_number }}</span></span>{% endif %}
         <span class="chip">{{ r.status }}</span>
+        {% for f in r.flags or [] %}
+          <span class="chip chip-orange" title="{{ f.text }}">
+            <i data-lucide="shield-alert"></i>warning</span>{% endfor %}
         <span class="meta" style="margin-left:auto">{{ r.ts|ago }}</span>
       </div>
       <div class="snippet" style="-webkit-line-clamp:3">{{ r.text }}</div>

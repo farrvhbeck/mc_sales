@@ -139,6 +139,125 @@ def enrich_pending(limit: int = 200, verbose: bool = True) -> dict:
     return stats
 
 
+# --- eskirgan leadlarni qayta tekshirish ---------------------------------
+
+
+WATCH_FIELDS = [
+    ("status", "Carrier status"),
+    ("authority_status", "Authority"),
+]
+
+
+def _cached(key: str) -> dict | None:
+    with db.connect() as conn:
+        row = conn.execute("SELECT payload, ok FROM fmcsa_cache WHERE key = ?",
+                           (key,)).fetchone()
+    if not row or not row["ok"]:
+        return None
+    return json.loads(row["payload"])
+
+
+def refresh(dot: str | None, mc: str | None) -> tuple[dict | None, dict | None]:
+    """Cache'ni chetlab o'tib qayta so'raydi. (eski, yangi) qaytaradi."""
+    dot, mc = _clean(dot), _clean(mc)
+    if not dot and not mc:
+        return None, None
+    key = f"dot:{dot}" if dot else f"docket:{mc}"
+    old = _cached(key)
+
+    raw = _fetch({"dot_number": dot} if dot else {"docket1": mc})
+    new = summarize(raw) if raw else None
+    with db.connect() as conn:
+        conn.execute(
+            """INSERT INTO fmcsa_cache (key, payload, ok, fetched_at) VALUES (?, ?, ?, ?)
+               ON CONFLICT(key) DO UPDATE SET payload=excluded.payload, ok=excluded.ok,
+                                              fetched_at=excluded.fetched_at""",
+            (key, json.dumps(new) if new else "null", 1 if new else 0, time.time()),
+        )
+    return old, new
+
+
+def _changes(old: dict | None, new: dict | None) -> list[str]:
+    """Diqqatga sazovor o'zgarishlar -- hammasi emas, qaror o'zgartiradiganlari."""
+    if old and not new:
+        return ["Disappeared from the FMCSA register"]
+    if not old or not new:
+        return []
+    out = []
+    for field, label in WATCH_FIELDS:
+        a, b = old.get(field), new.get(field)
+        if a and b and a != b:
+            out.append(f"{label}: {a} → {b}")
+    return out
+
+
+def recheck(limit: int | None = None, verbose: bool = True) -> dict:
+    """Sotuvda turgan eski leadlarni FMCSA'da qayta so'raydi.
+
+    Sotuvchi e'lonini qo'yganidan keyin authority o'lishi yoki sotilib ketishi
+    mumkin. Buni bilmasdan xaridorga taklif qilish -- eng qimmat xato, shuning
+    uchun eskirgan leadlar qayta tekshiriladi va o'zgarish darhol ko'rsatiladi.
+    """
+    cfg = db.load_config()
+    r = cfg.get("recheck") or {}
+    after = r.get("after_days", 14) * 86400
+    limit = limit or r.get("max_per_run", 40)
+    cutoff = time.time() - after
+
+    stats = {"checked": 0, "changed": 0, "gone": 0}
+    with db.connect() as conn:
+        rows = conn.execute(
+            """SELECT l.lead_id, l.mc_number, l.dot_number, l.status,
+                      COALESCE(p.created_at, p.first_seen_at) AS ts
+               FROM leads l
+               LEFT JOIN posts p ON p.post_id = COALESCE(l.source_post_id, l.source_id)
+               WHERE l.side = 'SELL'
+                 AND (l.mc_number IS NOT NULL OR l.dot_number IS NOT NULL)
+                 AND l.status IN ('new', 'contacted', 'qualified', 'matched')
+                 AND COALESCE(p.created_at, p.first_seen_at, 0) < ?
+               ORDER BY ts ASC LIMIT ?""",
+            (cutoff, limit),
+        ).fetchall()
+
+    for row in rows:
+        stats["checked"] += 1
+        old, new = refresh(row["dot_number"], row["mc_number"])
+        for text in _changes(old, new):
+            stats["changed"] += 1
+            if "Disappeared" in text:
+                stats["gone"] += 1
+            with db.connect() as conn:
+                conn.execute(
+                    """INSERT INTO lead_alerts (lead_id, kind, text, created_at)
+                       VALUES (?, 'fmcsa_change', ?, ?)""",
+                    (row["lead_id"], text, time.time()))
+            if verbose:
+                print(f"  lead {row['lead_id']}: {text}")
+        time.sleep(0.3)
+
+    with db.connect() as conn:
+        db.set_health(conn, "recheck_last_run", time.strftime("%Y-%m-%d %H:%M:%S"))
+        db.set_health(conn, "recheck_last_result", str(stats))
+    return stats
+
+
+def alerts_for(lead_ids: list[int]) -> dict[int, list[dict]]:
+    """lead_id -> ogohlantirishlar (UI uchun)."""
+    ids = [i for i in dict.fromkeys(lead_ids) if i]
+    if not ids:
+        return {}
+    out: dict[int, list[dict]] = {}
+    with db.connect() as conn:
+        for start in range(0, len(ids), 400):
+            chunk = ids[start : start + 400]
+            q = ",".join("?" * len(chunk))
+            for r in conn.execute(
+                f"""SELECT lead_id, kind, text, created_at FROM lead_alerts
+                    WHERE lead_id IN ({q}) ORDER BY created_at DESC""", chunk):
+                out.setdefault(r["lead_id"], []).append(dict(r))
+    return out
+
+
 def for_lead(lead: dict) -> dict | None:
     """Lead uchun cache'dan (yoki kerak bo'lsa tarmoqdan) FMCSA yozuvi."""
     if not lead.get("mc_number") and not lead.get("dot_number"):

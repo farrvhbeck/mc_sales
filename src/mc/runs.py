@@ -14,13 +14,15 @@ from contextlib import contextmanager
 from . import db
 
 # To'liq siklning bosqichlari, tartibi bilan. Progress shu ro'yxatdan hisoblanadi.
-STEP_ORDER = ["collect", "classify", "enrich", "score", "match", "notify"]
+STEP_ORDER = ["collect", "ocr", "classify", "enrich", "fraud", "score", "match", "notify"]
 STEP_TOTAL = len(STEP_ORDER)
 
 STEP_LABELS = {
     "collect": "Collect",
+    "ocr": "Read images",
     "classify": "Analyse",
     "enrich": "Verify",
+    "fraud": "Cross-check",
     "score": "Score",
     "match": "Match",
     "notify": "Notify",

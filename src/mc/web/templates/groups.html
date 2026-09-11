@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% set back = '/groups' %}
+{% block title %}Sources{% endblock %}
+
+{% block content %}
+
+<div class="title-row">
+  <h1 class="large">Sources</h1>
+  <span class="title-count">{{ rows|selectattr('enabled')|list|length }} active</span>
+</div>
+
+{% if message %}
+  <div class="card" style="margin-bottom:14px;border-left:3px solid var(--blue)">{{ message }}</div>
+{% endif %}
+
+{# Broad search: the one switch that changes how wide the net is. #}
+<form method="post" action="/groups/search" class="card" style="margin-bottom:20px">
+  <input type="hidden" name="back" value="{{ back }}">
+  <div style="display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap">
+    <div style="flex:1;min-width:240px">
+      <h3 style="margin-top:0">Broad search
+        <span class="chip {{ 'chip-green' if broad_on }}">{{ 'On' if broad_on else 'Off' }}</span></h3>
+      <p class="meta" style="margin:2px 0 0">
+        Off — only the groups listed below. On — Facebook's own post search as well,
+        so ads from groups you have not joined show up too. Costs nothing extra in
+        account risk: no new group to join.</p>
+      {% if broad_on %}
+        <p class="meta" style="margin:8px 0 0">
+          {{ search_stats.posts }} posts · {{ search_stats.leads }} leads
+          {%- if search_last %} · last run {{ search_last }}{% endif %}</p>
+      {% endif %}
+    </div>
+    <label class="switch" style="flex:none">
+      <input type="checkbox" name="on" value="1" {{ 'checked' if broad_on }}>
+      <span class="track"></span> Search the whole of Facebook</label>
+  </div>
+
+  <div style="margin-top:12px">
+    <div class="meta" style="margin-bottom:5px">Search terms — one per line</div>
+    <textarea name="queries" rows="{{ [queries|length + 1, 3]|max }}"
+              style="width:100%;font-family:inherit;resize:vertical;padding:9px;
+                     border:.5px solid var(--separator);border-radius:10px;
+                     background:var(--bg);color:inherit">{{ queries|join('\n') }}</textarea>
+  </div>
+  <button class="btn btn-primary" style="margin-top:10px">
+    <i data-lucide="check" style="width:14px;height:14px"></i> Save</button>
+</form>
+
+{# Add a group by link. #}
+<form method="post" action="/groups/add" class="card" style="margin-bottom:20px">
+  <input type="hidden" name="back" value="{{ back }}">
+  <h3 style="margin-top:0">Add a group</h3>
+  <p class="meta" style="margin:2px 0 10px">
+    Paste the group link. A numeric link works immediately; a named link
+    (<span class="mono">/groups/mcforsale/</span>) is resolved on the next collection.
+    The burner account must already be a member — the engine will not join for you.</p>
+  <div style="display:flex;gap:8px">
+    <span class="field grow">
+      <i data-lucide="link" style="width:15px;height:15px"></i>
+      <input name="url" placeholder="https://www.facebook.com/groups/1234567890/" required>
+    </span>
+    <button class="btn btn-primary">
+      <i data-lucide="plus" style="width:14px;height:14px"></i> Add</button>
+  </div>
+</form>
+
+<p class="section-label">Groups · {{ rows|length }}</p>
+
+<div class="group stagger">
+  {% for g in rows %}
+  <div class="row {{ 'dim' if not g.enabled }}">
+    <div style="flex:1;min-width:0">
+      <div class="facts">
+        <span class="name">{{ g.name or g.group_id }}</span>
+        {% if g.status == 'pending' %}
+          <span class="chip chip-orange"><i data-lucide="loader"></i>resolving on next run</span>
+        {% elif g.status == 'no_access' %}
+          <span class="chip chip-orange" title="{{ g.note }}">
+            <i data-lucide="lock"></i>no access</span>
+        {% elif not g.enabled %}
+          <span class="chip"><i data-lucide="pause"></i>paused</span>
+        {% endif %}
+        <span class="chip">{{ g.posts }} posts</span>
+        <span class="chip chip-blue">{{ g.leads }} leads</span>
+        {% if g.last_post %}
+          <span class="meta" style="margin-left:auto">last post {{ g.last_post|ago }} ago</span>
+        {% endif %}
+      </div>
+      <div class="meta" style="margin-top:4px">
+        <a href="{{ g.url }}" target="_blank" rel="noopener">{{ g.url }}</a>
+        {%- if g.last_collect_at %} · collected {{ g.last_collect_at|ago }} ago{% endif %}
+        {%- if g.status == 'no_access' and g.note %} · {{ g.note }}{% endif %}
+      </div>
+    </div>
+
+    <div style="display:flex;gap:6px;flex:none">
+      <form method="post" action="/groups/{{ g.group_id }}/toggle">
+        <input type="hidden" name="back" value="{{ back }}">
+        <input type="hidden" name="on" value="{{ '0' if g.enabled else '1' }}">
+        <button class="btn">{{ 'Pause' if g.enabled else 'Resume' }}</button>
+      </form>
+      <form method="post" action="/groups/{{ g.group_id }}/remove"
+            onsubmit="return confirm('Remove this group? Collected posts stay.')">
+        <input type="hidden" name="back" value="{{ back }}">
+        <button class="btn btn-icon btn-bad" title="Remove">
+          <i data-lucide="x" style="width:15px;height:15px"></i></button>
+      </form>
+    </div>
+  </div>
+  {% else %}
+  <div class="empty">
+    <i data-lucide="users" style="width:34px;height:34px"></i>
+    <h3>No groups yet</h3>
+    <p>Paste a group link above to start collecting.</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

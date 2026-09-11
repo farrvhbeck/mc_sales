@@ -23,7 +23,12 @@ def _pending(conn, limit: int) -> list[dict]:
     """Klassifikatsiya kutayotgan post va comment'lar, yangisi birinchi."""
     rows = conn.execute(
         """SELECT cs.source_id, cs.source_type,
-                  COALESCE(p.text, c.text)                       AS text,
+                  -- Rasmdan o'qilgan matn post matniga qo'shiladi: flayerda
+                  -- narx, yosh va telefon aynan shu yerda bo'ladi.
+                  TRIM(COALESCE(p.text, c.text, '') ||
+                       CASE WHEN p.ocr_text IS NOT NULL AND p.ocr_text != ''
+                            THEN char(10) || '[image text] ' || p.ocr_text
+                            ELSE '' END)                         AS text,
                   COALESCE(p.person_id, c.person_id)             AS person_id,
                   COALESCE(p.post_id, c.post_id)                 AS source_post_id,
                   COALESCE(p.created_at, c.created_at)           AS created_at,
@@ -36,7 +41,13 @@ def _pending(conn, limit: int) -> list[dict]:
            LIMIT ?""",
         (limit,),
     ).fetchall()
-    return [dict(r) for r in rows if r["text"]]
+    out = []
+    for r in rows:
+        item = dict(r)
+        item["text"] = (item["text"] or "").strip()
+        if item["text"]:
+            out.append(item)
+    return out
 
 
 def _mark(conn, source_id: str, stage: str, side: str | None = None, error: str | None = None):

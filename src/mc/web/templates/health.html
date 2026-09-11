@@ -72,6 +72,48 @@
   </div>
 
   <div class="card">
+    <h3>Filter accuracy</h3>
+    <p class="meta" style="margin:2px 0 8px">The cheap regex filter drops most posts
+       before the model sees them. This samples what it dropped and asks the model
+       whether any of it was a real lead.</p>
+    {% if audit %}
+      <table class="kv">
+        <tr><td>Checked</td><td class="num" style="text-align:right">{{ audit.checked }}</td></tr>
+        <tr><td>Wrongly dropped</td>
+            <td class="num" style="text-align:right;color:{{ 'var(--orange)' if audit.miss_rate_pct > 5 else 'var(--green)' }}">
+              {{ audit.missed }} · {{ audit.miss_rate_pct }}%</td></tr>
+        <tr><td>Put back in the queue</td>
+            <td class="num" style="text-align:right">{{ audit.requeued }}</td></tr>
+        <tr><td>Last run</td><td style="text-align:right">{{ audit.at }}</td></tr>
+      </table>
+      {% if audit.examples %}
+        <div class="meta" style="margin-top:8px">Examples it recovered:</div>
+        {% for e in audit.examples %}
+          <div class="snippet" style="-webkit-line-clamp:2">{{ e.side }} · {{ e.text }}</div>
+        {% endfor %}
+      {% endif %}
+    {% else %}
+      <p class="meta" style="margin:0">Not run yet — <code>uv run mc audit</code></p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Sources</h3>
+    <table class="kv">
+      {% for g in group_rows %}
+        <tr><td>{{ g.name or g.group_id }}{% if not g.enabled %}
+              <span class="meta">· paused</span>{% endif %}</td>
+            <td class="num" style="text-align:right">{{ g.posts }}</td></tr>
+      {% endfor %}
+      <tr><td>Broad search</td>
+          <td style="text-align:right;color:{{ 'var(--green)' if broad_on else 'var(--label-3)' }}">
+            {{ 'on' if broad_on else 'off' }}</td></tr>
+    </table>
+    <a class="btn btn-quiet" style="margin-top:8px" href="/groups">
+      <i data-lucide="settings-2" style="width:14px;height:14px"></i> Manage sources</a>
+  </div>
+
+  <div class="card">
     <h3>Groq usage per key</h3>
     <table class="kv">
       {% for u in usage %}

@@ -14,6 +14,7 @@ from pathlib import Path
 from playwright.sync_api import Page, sync_playwright
 
 from .. import db
+from .display import Hidden
 
 PROFILE_DIR = db.DATA / "fb_profile"
 
@@ -38,22 +39,29 @@ class SessionDead(RuntimeError):
 
 
 @contextmanager
-def browser(headless: bool = False):
+def browser(headless: bool = False, window: str = "auto"):
+    """Brauzer konteksti.
+
+    `window` -- oynani yashirish usuli (`display.py` ga qarang). Linux'da Xvfb
+    ishlatilsa brauzer haqiqiy headful bo'lib qoladi, lekin ekranga chiqmaydi:
+    FB uchun eng xavfsiz kombinatsiya.
+    """
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    with sync_playwright() as p:
+    with Hidden(window) as hide, sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             user_data_dir=str(PROFILE_DIR),
-            headless=headless,
+            headless=headless or hide.headless,
             user_agent=UA,
             viewport={"width": 1440, "height": 900},
             locale="en-US",
             timezone_id="America/New_York",
-            args=["--disable-blink-features=AutomationControlled"],
+            args=["--disable-blink-features=AutomationControlled", *hide.args],
         )
         # navigator.webdriver ni yashirish
         ctx.add_init_script(
             "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
         )
+        hide.after_launch()
         try:
             yield ctx
         finally:

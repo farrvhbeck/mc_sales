@@ -51,6 +51,59 @@ def _actor(node: dict) -> tuple[str | None, str | None, str | None]:
     return None, None, None
 
 
+# Avatar va guruh muqovasi ham shu daraxtda yotadi -- ularni rasm deb
+# yuklab olmaslik uchun o'lcham va URI belgilari bo'yicha filtrlaymiz.
+_THUMB = re.compile(r"ctp=s\d{1,2}x\d{1,2}|stp=c\d+\.\d+\.\d{1,2}\.")
+MIN_MEDIA_PX = 300
+
+
+def _media_id(uri: str, node: dict) -> str:
+    """Rasmning barqaror identifikatori.
+
+    CDN fayl nomi (`<id>_<id>_<id>_n.jpg`) har bir rasm uchun yagona, shuning
+    uchun u birinchi tanlanadi. Tugunning `id` si esa ba'zan rasmniki emas,
+    uni o'rab turgan obyektniki bo'lib chiqadi -- ikki rasm bitta id ostida
+    qolib ketmasin.
+    """
+    m = re.search(r"/(\d+_\d+_\d+_n)\.(?:jpg|png|webp)", uri)
+    if m:
+        return m.group(1)
+    fbid = node.get("id") or node.get("legacy_fbid")
+    if fbid and str(fbid).isdigit():
+        return str(fbid)
+    import hashlib
+
+    return hashlib.sha1(uri.split("?")[0].encode()).hexdigest()[:20]
+
+
+def extract_media(node: dict) -> list[dict]:
+    """Post tuguni ostidagi rasmlar: [{media_id, uri, width, height}].
+
+    Signal: `photo_image`/`image` da `uri`, o'lchami esa o'sha tugunda yoki
+    yonidagi `viewer_image` da. Kichik va kesilgan (avatar) variantlar tashlanadi.
+    """
+    out: dict[str, dict] = {}
+    for sub in walk(node):
+        for key in ("photo_image", "image", "full_image", "preview_image"):
+            img = sub.get(key)
+            if not isinstance(img, dict):
+                continue
+            uri = img.get("uri")
+            if not isinstance(uri, str) or not uri.startswith("http"):
+                continue
+            w = _int(img.get("width")) or _int((sub.get("viewer_image") or {}).get("width")
+                                               if isinstance(sub.get("viewer_image"), dict) else None)
+            h = _int(img.get("height")) or _int((sub.get("viewer_image") or {}).get("height")
+                                                if isinstance(sub.get("viewer_image"), dict) else None)
+            if (w and w < MIN_MEDIA_PX) or (h and h < MIN_MEDIA_PX):
+                continue
+            if _THUMB.search(uri) and not (w and w >= MIN_MEDIA_PX):
+                continue
+            mid = _media_id(uri, sub)
+            out.setdefault(mid, {"media_id": mid, "uri": uri, "width": w, "height": h})
+    return list(out.values())
+
+
 def _int(v: Any) -> int | None:
     if isinstance(v, bool):
         return None
@@ -87,7 +140,10 @@ def _time_by_post(payload: Any) -> dict[str, int]:
 def extract_posts(payload: Any, group_id: str) -> list[dict]:
     """Post'ga o'xshash tugunlarni chiqaradi.
 
-    Signal: raqamli `post_id` + `message.text`. Vaqt alohida bog'lanadi.
+    Signal: raqamli `post_id` + (`message.text` YOKI rasm). Rasmli e'lonlarda
+    matn ko'pincha "DM me" dan iborat, hamma fakt esa flayer ichida -- shuning
+    uchun matnsiz post ham qabul qilinadi va OCR bosqichiga uzatiladi.
+    Vaqt alohida bog'lanadi.
     """
     times = _time_by_post(payload)
     out: dict[str, dict] = {}
@@ -98,8 +154,10 @@ def extract_posts(payload: Any, group_id: str) -> list[dict]:
             continue
 
         text = _text(node.get("message")) or _text(node.get("message_preferred_body"))
-        if not text or not text.strip():
+        media = extract_media(node)
+        if not (text and text.strip()) and not media:
             continue
+        text = (text or "").strip()
 
         created = times.get(pid) or _int(node.get("creation_time"))
         person_id, name, url = _actor(node)
@@ -116,11 +174,22 @@ def extract_posts(payload: Any, group_id: str) -> list[dict]:
             if isinstance(rc, dict):
                 n_reactions = _int(rc.get("count"))
 
+        # Bitta post javobda bir necha tugunda uchraydi: birida to'liq matn,
+        # boshqasida rasm. Ikkalasini ham saqlaymiz.
+        prev = out.get(pid)
+        if prev:
+            if len(prev.get("text") or "") > len(text):
+                text = prev["text"]
+            seen = {m["media_id"] for m in media}
+            media = media + [m for m in (prev.get("media") or [])
+                             if m["media_id"] not in seen]
+
         out[pid] = {
             "post_id": pid,
             "group_id": group_id,
             "person_id": person_id,
-            "text": text.strip(),
+            "text": text,
+            "media": media,
             "permalink": node.get("wwwURL")
                 or f"https://www.facebook.com/groups/{group_id}/posts/{pid}/",
             "created_at": float(created) if created else None,

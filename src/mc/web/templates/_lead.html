@@ -74,8 +74,28 @@
     {% if r.buyer_needs_amazon %}{{ chip('Needs Amazon', '', 'package') }}{% endif %}
   {% endif %}
   {% if r.is_suspected_reseller %}{{ chip('Reseller · ' ~ r.n_sell, 'orange', 'repeat') }}{% endif %}
+  {% for f in r.flags or [] %}
+    <span class="chip chip-orange" title="{{ f.text }}"><i data-lucide="shield-alert"></i>
+      {{ 'Same contact, many MCs' if f.code == 'contact_many_mc'
+         else ('Sold by two accounts' if f.code == 'mc_many_sellers' else 'Linked accounts') }}</span>
+  {% endfor %}
+  {% for a in r.alerts or [] %}
+    <span class="chip chip-orange" title="{{ a.text }}">
+      <i data-lucide="refresh-cw"></i>{{ a.text }}</span>
+  {% endfor %}
+  {% if r.n_media %}
+    {{ chip(r.n_media ~ ' image' ~ ('s' if r.n_media > 1 else ''), 'blue', 'image') }}{% endif %}
   {% if r.contact_value %}
     <span class="chip chip-blue" style="user-select:all"><i data-lucide="phone"></i>{{ r.contact_value }}</span>
+  {% endif %}
+{% endmacro %}
+
+{# A thumbnail in the row: the reader can be wrong, the picture cannot. #}
+{% macro thumb(r) %}
+  {% if r.media %}
+    <img src="/media/{{ r.media[0].media_id }}" alt="" loading="lazy" class="thumb"
+         style="width:54px;height:54px;object-fit:cover;border-radius:10px;flex:none;
+                border:.5px solid var(--separator)">
   {% endif %}
 {% endmacro %}
 
@@ -107,10 +127,57 @@
     </div>
   </div>
 
+  {% if lead.text %}
   <div class="card">
     <h3>Post</h3>
     <div class="post-text">{{ lead.text }}</div>
   </div>
+  {% endif %}
+
+  {% if lead.media %}
+  <div class="card">
+    <h3>Image{{ 's' if lead.media|length > 1 }}
+      {%- if lead.ocr_conf %} <span class="meta" style="font-weight:400">·
+        read with {{ '%.0f' % (lead.ocr_conf * 100) }}% confidence</span>{% endif %}</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      {% for m in lead.media %}
+        <a href="/media/{{ m.media_id }}" target="_blank" rel="noopener">
+          <img src="/media/{{ m.media_id }}" alt="Post image" loading="lazy"
+               style="max-width:100%;max-height:420px;border-radius:11px;
+                      border:.5px solid var(--separator)"></a>
+      {% endfor %}
+    </div>
+    {% if lead.ocr_text %}
+      <div class="meta" style="margin-top:10px">Read from the image — check it against
+        the picture before you act on a number.</div>
+      <div class="post-text" style="margin-top:4px;color:var(--label-2)">{{ lead.ocr_text }}</div>
+    {% endif %}
+    <a class="btn btn-quiet" style="margin-top:10px" href="/images?tab=">
+      <i data-lucide="pencil" style="width:14px;height:14px"></i> Fix the text</a>
+  </div>
+  {% endif %}
+
+  {% if lead.alerts %}
+  <div class="card" style="border-left:3px solid var(--orange)">
+    <h3>Changed since it was posted</h3>
+    <p class="meta" style="margin:2px 0 8px">The register was checked again — this
+       is no longer what the post claimed.</p>
+    {% for a in lead.alerts %}
+      <div style="padding:4px 0;color:var(--orange)">{{ a.text }}
+        <span class="meta">· {{ a.created_at|ago }} ago</span></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if lead.flags %}
+  <div class="card">
+    <h3>Warnings</h3>
+    {% for f in lead.flags %}
+      <div style="padding:6px 0;color:var(--orange)">
+        <i data-lucide="shield-alert" style="width:14px;height:14px"></i> {{ f.text }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   {% if is_sell and lead.fit_verdict %}
   <div class="card">

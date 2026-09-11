@@ -158,8 +158,41 @@ def score_seller(lead: dict, w: dict, person: dict | None, fm: dict | None) -> t
             b.append(("Phone differs from the FMCSA record (identity-theft signal)",
                       w["phone_mismatch_penalty"]))
 
+    _fraud_lines(lead, b)
+    _ocr_line(lead, b)
+
     total = sum(p for _, p in b)
     return max(0, min(100, round(total))), b
+
+
+def _fraud_lines(lead: dict, b: list) -> None:
+    """`fraud.py` topgan signallarni ball izohiga qo'shadi.
+
+    Signal matni o'sha yerda yozilgan -- bu yerda faqat ballga aylantiriladi,
+    shunda "nega bu lead past" degan javob bitta ro'yxatda qoladi.
+    """
+    raw = lead.get("flags")
+    if not raw:
+        return
+    try:
+        flags = json.loads(raw)
+    except (TypeError, ValueError):
+        return
+    for f in flags:
+        b.append((f.get("text") or f.get("code"), f.get("points") or 0))
+
+
+def _ocr_line(lead: dict, b: list) -> None:
+    """Faktlar rasmdan o'qilgan bo'lsa -- ball emas, ogohlantirish.
+
+    Ball tushirilmaydi: OCR ishonchli bo'lganda lead ro'yxat tepasiga chiqishi
+    kerak. Lekin raqam rasmdan kelgani ko'rinib tursin -- va MC noto'g'ri
+    o'qilgan bo'lsa, FMCSA tekshiruvi buni o'zi tutadi.
+    """
+    conf = lead.get("ocr_conf")
+    if not lead.get("ocr_text") or not conf:
+        return
+    b.append((f"Some facts were read from the image (OCR confidence {conf:.0%})", 0))
 
 
 def score_buyer(lead: dict, w: dict, person: dict | None) -> tuple[int, list]:
@@ -184,6 +217,9 @@ def score_buyer(lead: dict, w: dict, person: dict | None) -> tuple[int, list]:
     if person and (person.get("n_buy") or 0) >= 8:
         b.append((f"Posts constantly ({person['n_buy']} times)", w["lowballer_penalty"]))
 
+    _fraud_lines(lead, b)
+    _ocr_line(lead, b)
+
     total = sum(p for _, p in b)
     return max(0, min(100, round(total))), b
 
@@ -202,7 +238,8 @@ def run(limit: int = 5000) -> dict:
         rows = conn.execute(
             """SELECT l.*,
                       COALESCE(p.created_at, c.created_at,
-                               p.first_seen_at, c.first_seen_at) AS created_at_src
+                               p.first_seen_at, c.first_seen_at) AS created_at_src,
+                      p.ocr_text, p.ocr_conf
                FROM leads l
                LEFT JOIN posts p    ON p.post_id = l.source_id AND l.source_type = 'post'
                LEFT JOIN comments c ON c.comment_id = l.source_id AND l.source_type = 'comment'

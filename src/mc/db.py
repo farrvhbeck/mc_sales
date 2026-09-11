@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data"
 DB_PATH = DATA / "mc.db"
 RAW_DIR = DATA / "raw"
+MEDIA_DIR = DATA / "media"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS people (
@@ -181,6 +182,80 @@ CREATE TABLE IF NOT EXISTS run_steps (
     error       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_run_steps_run ON run_steps(run_id);
+
+-- Rasmli postlarning rasmlari. Bayt diskda, yo'l shu yerda.
+-- FB CDN havolasi imzolangan va bir necha kunda o'ladi, shuning uchun rasm
+-- yig'ish paytida yuklab olinadi va boshqa havolaga qaytilmaydi.
+CREATE TABLE IF NOT EXISTS post_media (
+    media_id   TEXT PRIMARY KEY,      -- FB fbid, bo'lmasa URI hash
+    post_id    TEXT REFERENCES posts(post_id),
+    url        TEXT,
+    local_path TEXT,                  -- data/media/ ga nisbatan
+    width      INTEGER,
+    height     INTEGER,
+    bytes      INTEGER,
+    ocr_text   TEXT,
+    ocr_conf   REAL,
+    ocr_engine TEXT,
+    ocr_at     REAL,
+    ocr_error  TEXT,
+    created_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_media_post ON post_media(post_id);
+CREATE INDEX IF NOT EXISTS idx_media_ocr ON post_media(ocr_at);
+
+-- Firibgarlik grafigi: normalizatsiya qilingan aloqa (telefon/email) -> odam.
+-- Har `mc score` da qayta quriladi.
+CREATE TABLE IF NOT EXISTS contact_index (
+    contact_key TEXT,
+    kind        TEXT,      -- 'phone' | 'email'
+    person_id   TEXT,
+    lead_id     INTEGER,
+    mc_number   TEXT,
+    PRIMARY KEY (contact_key, lead_id)
+);
+CREATE INDEX IF NOT EXISTS idx_contact_key ON contact_index(contact_key);
+
+-- Kuzatilayotgan guruhlar. config.yaml dan bir marta ko'chiriladi, keyin
+-- dashboard'dan boshqariladi: qo'shish, o'chirish, vaqtincha to'xtatish.
+CREATE TABLE IF NOT EXISTS fb_groups (
+    group_id        TEXT PRIMARY KEY,   -- raqamli FB id, yoki 'slug:<slug>' (hali aniqlanmagan)
+    name            TEXT,
+    url             TEXT,
+    slug            TEXT,
+    enabled         INTEGER DEFAULT 1,
+    status          TEXT,               -- ok | pending | no_access | error
+    note            TEXT,
+    added_at        REAL,
+    last_collect_at REAL,
+    last_result     TEXT
+);
+
+-- Dashboard'dan o'zgartiriladigan sozlamalar (config.yaml -- boshlang'ich qiymat)
+CREATE TABLE IF NOT EXISTS settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT,
+    updated_at REAL
+);
+
+-- Lead ustidagi o'zgarishlar: authority o'ldi, registrdan yo'qoldi va h.k.
+CREATE TABLE IF NOT EXISTS lead_alerts (
+    alert_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id     INTEGER REFERENCES leads(lead_id),
+    kind        TEXT,
+    text        TEXT,
+    created_at  REAL,
+    notified_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_lead ON lead_alerts(lead_id);
+
+-- Qidiruv indeksi. rowid = lead_id.
+-- `numbers` -- MC/DOT/telefondan ajratilgan faqat raqamlar, shuning uchun
+-- "(305) 555-0101" va "3055550101" bir xil topiladi.
+CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
+    text, name, numbers,
+    tokenize='unicode61 remove_diacritics 2'
+);
 """
 
 
@@ -204,6 +279,12 @@ NEW_COLUMNS = [
     ("posts", "group_name", "TEXT"),
     ("matches", "alt_buyers", "INTEGER"),
     ("matches", "alt_sellers", "INTEGER"),
+    ("posts", "n_media", "INTEGER"),
+    ("posts", "ocr_text", "TEXT"),
+    ("posts", "ocr_conf", "REAL"),
+    ("posts", "media_state", "TEXT"),     # NULL/none | ok | review
+    ("leads", "flags", "TEXT"),           # JSON: firibgarlik signallari
+    ("posts", "source_query", "TEXT"),    # keng qidiruvdan kelgan bo'lsa -- so'rov
 ]
 
 
@@ -265,28 +346,49 @@ def upsert_person(conn, person_id: str, name: str | None, profile_url: str | Non
     )
 
 
-def upsert_post(conn, post: dict[str, Any]) -> bool:
-    """True qaytaradi agar bu yangi post bo'lsa."""
+def upsert_post(conn, post: dict[str, Any], min_text_chars: int = 0) -> bool:
+    """True qaytaradi agar bu yangi post bo'lsa.
+
+    Matni qisqa, lekin rasmi bor post `awaiting_ocr` navbatiga tushadi -- LLM
+    unga OCR matnisiz tegmaydi, chunki tegadigan narsa yo'q.
+    """
     now = time.time()
+    media = post.get("media") or []
+    row = {k: v for k, v in post.items() if k != "media"}
+    row["n_media"] = len(media)
     cur = conn.execute("SELECT 1 FROM posts WHERE post_id = ?", (post["post_id"],))
     is_new = cur.fetchone() is None
     conn.execute(
         """INSERT INTO posts (post_id, group_id, person_id, text, permalink,
-                              created_at, first_seen_at, n_comments, n_reactions, raw_path)
+                              created_at, first_seen_at, n_comments, n_reactions,
+                              raw_path, n_media)
            VALUES (:post_id, :group_id, :person_id, :text, :permalink,
-                   :created_at, :first_seen_at, :n_comments, :n_reactions, :raw_path)
+                   :created_at, :first_seen_at, :n_comments, :n_reactions,
+                   :raw_path, :n_media)
            ON CONFLICT(post_id) DO UPDATE SET
              text        = COALESCE(NULLIF(excluded.text, ''), posts.text),
              n_comments  = COALESCE(excluded.n_comments, posts.n_comments),
              n_reactions = COALESCE(excluded.n_reactions, posts.n_reactions),
+             n_media     = MAX(COALESCE(posts.n_media, 0), COALESCE(excluded.n_media, 0)),
              created_at  = COALESCE(posts.created_at, excluded.created_at)""",
-        {"first_seen_at": now, **post},
+        {"first_seen_at": now, **row},
     )
+
+    for m in media:
+        conn.execute(
+            """INSERT OR IGNORE INTO post_media (media_id, post_id, url, width, height,
+                                                 created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (m["media_id"], post["post_id"], m["uri"], m.get("width"), m.get("height"), now),
+        )
+
     if is_new:
+        enough_text = len((post.get("text") or "").strip()) >= min_text_chars
+        stage = "pending" if enough_text or not media else "awaiting_ocr"
         conn.execute(
             """INSERT OR IGNORE INTO classify_state (source_id, source_type, stage, updated_at)
-               VALUES (?, 'post', 'pending', ?)""",
-            (post["post_id"], now),
+               VALUES (?, 'post', ?, ?)""",
+            (post["post_id"], stage, now),
         )
     return is_new
 
@@ -324,6 +426,30 @@ def get_health(conn) -> dict[str, dict[str, Any]]:
         r["key"]: {"value": r["value"], "updated_at": r["updated_at"]}
         for r in conn.execute("SELECT * FROM health")
     }
+
+
+# --- sozlamalar ----------------------------------------------------------
+
+
+def get_setting(key: str, default: Any = None) -> Any:
+    with connect() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    if not row:
+        return default
+    try:
+        return json.loads(row["value"])
+    except (TypeError, ValueError):
+        return row["value"]
+
+
+def set_setting(key: str, value: Any) -> None:
+    with connect() as conn:
+        conn.execute(
+            """INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                              updated_at = excluded.updated_at""",
+            (key, json.dumps(value), time.time()),
+        )
 
 
 def save_raw(group_id: str, kind: str, payload: Any) -> str:

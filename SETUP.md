@@ -36,6 +36,17 @@ uv venv --python 3.13
 uv pip install -e .
 uv run playwright install chromium
 uv run playwright install-deps       # Linux'da; ruxsat so'rasa parol kiriting
+sudo apt install -y xvfb             # Linux'da: brauzer oynasi ekranga chiqmasin
+```
+
+macOS va Windows'da `xvfb` yo'q — u yerda oyna boshqa yo'l bilan yashiriladi
+(`mc doctor` qaysi usul ishlayotganini aytadi). Rasm o'qish uchun alohida narsa
+o'rnatish shart emas: OCR modellari `uv pip install -e .` bilan keladi.
+
+Hammasi joyidami — bitta buyruq bilan tekshiriladi:
+
+```bash
+uv run mc doctor
 ```
 
 ## 3. Kalitlar
@@ -89,8 +100,10 @@ login kerak emas.
 
 ```bash
 uv run mc collect          # 5-15 daqiqa, brauzer o'zi scroll qiladi — tegmang
+uv run mc ocr              # rasmli e'lonlarni o'qish
 uv run mc classify
 uv run mc enrich
+uv run mc fraud
 uv run mc score
 uv run mc match
 uv run mc stats            # nima yig'ilganini ko'rish

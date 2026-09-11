@@ -31,7 +31,8 @@ def login(wait: int = typer.Option(300, help="Login uchun necha soniya kutilsin"
     deadline = time.time() + wait
     typer.echo("Brauzer ochilyapti… o'sha oynada Facebook'ga kiring.")
 
-    with browser(headless=False) as ctx:
+    # Bu yerda oyna ko'rinishi SHART -- foydalanuvchi qo'lda kiradi
+    with browser(headless=False, window="visible") as ctx:
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto("https://www.facebook.com/", timeout=60000)
 
@@ -82,7 +83,9 @@ def collect(
     Odatda inkremental: tanish postlarga yetganda to'xtaydi. Butun tarixni
     qaytadan olish uchun `--full`.
     """
+    from . import groups as G
     from . import runs
+    from .collect import discover
     from .collect.browser import SessionDead, browser
     from .collect.feed import sweep_feed
     from .collect.post import fetch_comments, pending_posts
@@ -90,7 +93,7 @@ def collect(
 
     db.init()
     cfg = db.load_config()
-    groups = [g for g in cfg["groups"] if not group or g["id"] == group]
+    groups = [g for g in G.enabled() if not group or g["group_id"] == group]
     days = since_days or cfg["collect"]["backfill_days"]
     since_ts = time.time() - days * 86400
     if comments is None:
@@ -99,15 +102,44 @@ def collect(
     try:
         with runs.track("manual") as r, r.step("collect") as st:
             out = {}
-            with browser(headless=cfg["collect"]["headless"]) as ctx:
+            with browser(headless=cfg["collect"]["headless"],
+                         window=cfg["collect"].get("window", "auto")) as ctx:
+                # Havola bo'yicha qo'shilgan, lekin id si hali aniqlanmagan guruhlar
+                # Havola bo'yicha qo'shilgan guruhni aniqlash -- xato bo'lsa ham
+                # qolgan yig'ish to'xtamasin
+                for g in G.pending():
+                    typer.echo(f"→ guruh aniqlanmoqda: {g['url']}")
+                    try:
+                        res = G.resolve(ctx, g)
+                    except SessionDead:
+                        raise
+                    except Exception as e:
+                        G.mark(g["group_id"], "error", f"{type(e).__name__}: {e}"[:200])
+                        res = {"ok": False, "message": str(e)[:120]}
+                    typer.echo(f"  {res}")
+                    if res.get("ok"):
+                        groups = [x for x in G.enabled() if not group or x["group_id"] == group]
+
                 for gi, g in enumerate(groups, 1):
-                    typer.echo(f"→ [{gi}/{len(groups)}] {g['name']} ({days} kun)")
+                    label = g["name"] or g["group_id"]
+                    typer.echo(f"→ [{gi}/{len(groups)}] {label} ({days} kun)")
                     with db.connect() as conn:
                         db.set_health(conn, "collect_progress",
-                                      f"guruh {gi}/{len(groups)}: {g['name']}")
-                    res = sweep_feed(ctx, g["id"], cfg, since_ts, dry_run=dry_run, full=full)
-                    out[g["id"]] = res
+                                      f"guruh {gi}/{len(groups)}: {label}")
+                    res = sweep_feed(ctx, g["group_id"], cfg, since_ts,
+                                     dry_run=dry_run, full=full)
+                    out[g["group_id"]] = res
+                    if not dry_run:
+                        G.record_run(g["group_id"], res)
                     typer.echo(f"  feed: {res}")
+
+                if discover.is_on(cfg) and not dry_run:
+                    typer.echo("→ keng qidiruv (guruhlardan tashqarida)")
+                    with db.connect() as conn:
+                        db.set_health(conn, "collect_progress", "keng qidiruv")
+                    out["search"] = discover.run(ctx, cfg, since_ts)
+                    for q, r in out["search"].items():
+                        typer.echo(f"  {q}: {r}")
 
                 if comments and not dry_run:
                     todo = pending_posts(cfg["collect"]["max_posts_per_run"])
@@ -177,7 +209,7 @@ def ingest_raw(group: str = typer.Option(None, help="Faqat shu guruh")):
             with db.connect() as conn:
                 for p in found.values():
                     stats["seen"] += 1
-                    if len((p.get("text") or "").strip()) < min_chars:
+                    if len((p.get("text") or "").strip()) < min_chars and not p.get("media"):
                         stats["skipped_short"] += 1
                         continue
                     if p["person_id"]:
@@ -186,7 +218,7 @@ def ingest_raw(group: str = typer.Option(None, help="Faqat shu guruh")):
                     p.pop("_author_name", None)
                     p.pop("_author_url", None)
                     p["raw_path"] = rel
-                    if db.upsert_post(conn, p):
+                    if db.upsert_post(conn, p, min_text_chars=min_chars):
                         stats["new"] += 1
             typer.echo(f"  {path.name}: {len(found)} post")
         st["result"] = stats
@@ -206,15 +238,89 @@ def classify(limit: int = 200):
 
 
 @app.command()
-def enrich(limit: int = 200):
-    """MC/DOT raqamlarini FMCSA bo'yicha tekshiradi."""
+def ocr(limit: int = typer.Option(None, help="Nechta rasm o'qilsin"),
+        redo: bool = typer.Option(False, help="O'qilganlarini ham qaytadan")):
+    """Rasmli postlarning rasmini o'qiydi (OCR).
+
+    Ishonchli o'qilgani odatdagi ro'yxatga tushadi, qolgani `/images` da
+    qo'lda ko'riladi.
+    """
     from . import runs
-    from .enrich.fmcsa import enrich_pending
+    from .ocr.run import run
+
+    db.init()
+    with runs.track("manual") as r, r.step("ocr") as st:
+        st["result"] = run(limit=limit, redo=redo)
+    typer.echo(st["result"])
+
+
+@app.command()
+def enrich(limit: int = 200,
+           recheck_only: bool = typer.Option(False, help="Faqat eskirgan leadlarni qayta so'rash")):
+    """MC/DOT raqamlarini FMCSA bo'yicha tekshiradi.
+
+    Yangi leadlar tekshiriladi va eskirganlari (2 haftadan oshgan sotuv
+    e'lonlari) qaytadan so'raladi -- authority o'lgan yoki sotilgan bo'lishi
+    mumkin, buni bilmasdan xaridorga taklif qilish eng qimmat xato.
+    """
+    from . import runs
+    from .audit import run as audit_run
+    from .enrich.fmcsa import enrich_pending, recheck, recheck
 
     db.init()
     with runs.track("manual") as r, r.step("enrich") as st:
-        st["result"] = enrich_pending(limit=limit)
+        out = {} if recheck_only else enrich_pending(limit=limit)
+        st["result"] = out | {"recheck": recheck()}
     typer.echo(st["result"])
+
+
+@app.command()
+def audit(sample: int = typer.Option(None, help="Nechta post tekshirilsin"),
+          force: bool = typer.Option(True, help="Vaqti kelmagan bo'lsa ham")):
+    """T0 regex filtri nechta haqiqiy leadni tashlab yuborayotganini o'lchaydi.
+
+    Tashlanganlardan namuna olib LLM'ga yuboradi. Topilgan leadlar navbatga
+    qaytariladi, ya'ni audit o'zini oqlaydi.
+    """
+    from . import audit as A
+
+    db.init()
+    typer.echo(A.run(sample=sample, force=force))
+
+
+@app.command("groups")
+def groups_(add: str = typer.Option(None, help="Havola yoki guruh id qo'shish"),
+            remove: str = typer.Option(None, help="Guruh id ni ro'yxatdan chiqarish"),
+            on: str = typer.Option(None, help="Guruhni yoqish"),
+            off: str = typer.Option(None, help="Guruhni vaqtincha to'xtatish")):
+    """Kuzatilayotgan guruhlar ro'yxati (dashboard: /groups)."""
+    from . import groups as G
+
+    db.init()
+    if add:
+        typer.echo(G.add(add)["message"])
+    if remove:
+        G.remove(remove)
+        typer.echo(f"{remove} olib tashlandi")
+    if on:
+        G.set_enabled(on, True)
+    if off:
+        G.set_enabled(off, False)
+
+    st = G.stats()
+    for g in G.all_groups():
+        s = st.get(g["group_id"], {})
+        mark = "●" if g["enabled"] else "○"
+        status = "" if g["status"] == "ok" else f" [{g['status']}]"
+        typer.echo(f" {mark} {(g['name'] or g['group_id'])[:44]:<44} "
+                   f"{s.get('posts', 0):>5} post  {s.get('leads', 0):>4} lead{status}")
+        if g["status"] == "no_access" and g["note"]:
+            typer.echo(f"     {g['note']}")
+
+    from .collect import discover
+    cfg = db.load_config()
+    typer.echo(f"\n Keng qidiruv: {'yoqilgan' if discover.is_on(cfg) else 'o‘chiq'}"
+               f" ({len(discover.queries(cfg))} so'rov)")
 
 
 @app.command()
@@ -227,6 +333,27 @@ def score():
     with runs.track("manual") as r, r.step("score") as st:
         st["result"] = scoring.run() | scoring.dedupe()
     typer.echo(st["result"])
+
+
+@app.command()
+def fraud():
+    """Firibgarlik signallari: bitta telefon ortidagi ko'p MC va aksincha."""
+    from . import fraud as fr
+    from . import runs
+
+    db.init()
+    with runs.track("manual") as r, r.step("fraud") as st:
+        st["result"] = fr.run()
+    typer.echo(st["result"])
+
+
+@app.command("reindex")
+def reindex():
+    """Qidiruv indeksini qayta quradi."""
+    from . import search
+
+    db.init()
+    typer.echo(search.reindex())
 
 
 @app.command()
@@ -263,6 +390,18 @@ def reprocess():
         conn.execute("DELETE FROM notified")
         conn.execute("DELETE FROM leads")
         conn.execute("UPDATE classify_state SET stage = 'pending', side_guess = NULL, error = NULL")
+        # Matnsiz rasmli postlar OCR'siz LLM'ga bormasin
+        conn.execute("""
+            UPDATE classify_state SET stage = 'awaiting_ocr'
+            WHERE source_type = 'post' AND source_id IN (
+                SELECT post_id FROM posts
+                WHERE COALESCE(n_media, 0) > 0
+                  AND LENGTH(TRIM(COALESCE(text, ''))) < 25
+                  AND COALESCE(ocr_text, '') = '')""")
+        conn.execute("""
+            UPDATE classify_state SET stage = 'media_review'
+            WHERE source_type = 'post' AND source_id IN (
+                SELECT post_id FROM posts WHERE media_state = 'review')""")
     typer.echo("Navbat tozalandi — endi `mc classify` ni yurgizing.")
 
 
@@ -295,6 +434,82 @@ def stats():
                        f"({b['spent']:,} sarflandi)")
     except Exception as e:
         typer.echo(f"  budjet: {e}")
+
+
+@app.command()
+def doctor():
+    """Muhit tayyormi? Har bir shart va nima qilish kerakligi.
+
+    Yangi kompyuterga o'rnatganda birinchi shu buyruq yuritiladi.
+    """
+    import platform
+
+    db.init()
+    cfg = db.load_config()
+    ok = True
+
+    def line(good: bool, label: str, detail: str = "", required: bool = True) -> None:
+        nonlocal ok
+        if required:
+            ok = ok and good
+        mark = "✅" if good else ("❌" if required else "ℹ️ ")
+        typer.echo(f"  {mark} {label}" + (f" — {detail}" if detail else ""))
+
+    typer.echo(f"\nTizim: {platform.system()} {platform.release()}, Python {platform.python_version()}\n")
+
+    # OCR
+    from .ocr import engine
+    line(engine.available(), "OCR (rapidocr)",
+         "" if engine.available() else "`uv pip install -e .` bilan o'rnating")
+
+    # Brauzer oynasi
+    from .collect import display
+    mode = cfg["collect"].get("window", "auto")
+    hidden_ok = mode == "visible" or platform.system() != "Linux" or display.xvfb_available()
+    line(hidden_ok, f"Brauzer oynasi (window: {mode})", display.describe())
+
+    # Playwright brauzeri. Drayverni ishga tushirmaymiz -- kesh katalogiga qaraymiz,
+    # aks holda tekshiruv uchun butun brauzer stek ko'tariladi.
+    import os
+    from pathlib import Path as _P
+
+    roots = [os.environ.get("PLAYWRIGHT_BROWSERS_PATH"),
+             _P.home() / ".cache" / "ms-playwright",
+             _P.home() / "Library" / "Caches" / "ms-playwright",
+             _P.home() / "AppData" / "Local" / "ms-playwright"]
+    found = next((r for r in roots if r and _P(r).exists()
+                  and any(_P(r).glob("chromium*"))), None)
+    line(bool(found), "Playwright Chromium",
+         str(found) if found else "`uv run playwright install chromium`")
+
+    # FB sessiya
+    with db.connect() as conn:
+        h = db.get_health(conn)
+    sess = (h.get("session") or {}).get("value", "")
+    line(sess == "OK", "FB sessiya", sess or "`uv run mc login`")
+
+    # Groq kalitlari
+    from .classify.groq_client import _load_keys
+    keys = _load_keys()
+    line(bool(keys), f"Groq kalitlari: {len(keys)} ta",
+         "" if keys else ".env da GROQ_API_KEY yo'q")
+
+    # Telegram -- ixtiyoriy
+    db.load_env()
+    tg = bool(os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID"))
+    line(tg, "Telegram xabarnoma",
+         "" if tg else "ixtiyoriy — .env da token/chat id yo'q", required=False)
+
+    # Baza
+    with db.connect() as conn:
+        n_posts = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
+        n_media = conn.execute(
+            "SELECT COUNT(*) FROM post_media WHERE local_path IS NOT NULL").fetchone()[0]
+        n_index = conn.execute("SELECT COUNT(*) FROM search_index").fetchone()[0]
+    typer.echo(f"\n  Baza: {n_posts} post, {n_media} rasm diskda, {n_index} lead indeksda")
+
+    typer.echo("\n" + ("Hammasi tayyor." if ok else
+                       "Yuqoridagi ❌ larni to'g'rilang, keyin `uv run mc start`."))
 
 
 def _pidfile(name: str):
@@ -782,13 +997,19 @@ def stop():
 
 
 def _pipeline():
+    from . import groups as G
     from . import match as matching
     from . import score as scoring
+    from . import search
     from .classify.run import run as classify_run
+    from .collect import discover
+    from .fraud import run as fraud_run
+    from .ocr.run import run as ocr_run
     from .collect.browser import browser
     from .collect.feed import sweep_feed
     from .collect.post import fetch_comments, pending_posts
-    from .enrich.fmcsa import enrich_pending
+    from .audit import run as audit_run
+    from .enrich.fmcsa import enrich_pending, recheck
     from .notify import telegram
 
     cfg = db.load_config()
@@ -796,12 +1017,26 @@ def _pipeline():
     def _collect():
         since_ts = time.time() - cfg["collect"]["backfill_days"] * 86400
         out = {}
-        with browser(headless=cfg["collect"]["headless"]) as ctx:
-            for gi, g in enumerate(cfg["groups"], 1):
+        with browser(headless=cfg["collect"]["headless"],
+                     window=cfg["collect"].get("window", "auto")) as ctx:
+            for g in G.pending():
+                try:
+                    out.setdefault("resolved", []).append(G.resolve(ctx, g))
+                except Exception as e:
+                    G.mark(g["group_id"], "error", f"{type(e).__name__}: {e}"[:200])
+            active = G.enabled()
+            for gi, g in enumerate(active, 1):
                 with db.connect() as conn:
                     db.set_health(conn, "collect_progress",
-                                  f"guruh {gi}/{len(cfg['groups'])}: {g['name']}")
-                out[g["id"]] = sweep_feed(ctx, g["id"], cfg, since_ts)
+                                  f"guruh {gi}/{len(active)}: {g['name'] or g['group_id']}")
+                res = sweep_feed(ctx, g["group_id"], cfg, since_ts)
+                out[g["group_id"]] = res
+                G.record_run(g["group_id"], res)
+
+            if discover.is_on(cfg):
+                with db.connect() as conn:
+                    db.set_health(conn, "collect_progress", "keng qidiruv")
+                out["search"] = discover.run(ctx, cfg, since_ts)
         with db.connect() as conn:
             db.set_health(conn, "collect_progress", "")
             if cfg["collect"].get("comments", False):
@@ -816,9 +1051,14 @@ def _pipeline():
 
     return [
         ("collect", _collect),
-        ("classify", lambda: classify_run(limit=200, verbose=False)),
-        ("enrich", lambda: enrich_pending(limit=100, verbose=False)),
-        ("score", lambda: scoring.run() | scoring.dedupe()),
+        ("ocr", lambda: ocr_run(verbose=False)),
+        ("classify", lambda: classify_run(limit=200, verbose=False)
+                              | {"audit": audit_run(verbose=False)}),
+        ("enrich", lambda: enrich_pending(limit=100, verbose=False)
+                           | {"recheck": recheck(verbose=False)}),
+        # Firibgarlik ballga ta'sir qiladi, shuning uchun score'dan oldin
+        ("fraud", fraud_run),
+        ("score", lambda: scoring.run() | scoring.dedupe() | search.reindex()),
         ("match", matching.run),
         ("notify", telegram.run),
     ]

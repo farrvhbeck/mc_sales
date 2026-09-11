@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% set back = request.url.path ~ ('?' ~ request.url.query if request.url.query else '') %}
+{% block title %}Images{% endblock %}
+
+{% block content %}
+
+<div class="title-row">
+  <h1 class="large">Images</h1>
+  <span class="title-count">{{ rows|length }} shown</span>
+</div>
+
+<div class="segmented" role="tablist">
+  {% for val, label in tabs %}
+    <a role="tab" href="/images?tab={{ val }}" {% if tab == val %}aria-current="true"{% endif %}>
+      {{ label }}<span class="n">{{ counts[val] }}</span></a>
+  {% endfor %}
+</div>
+
+{% if tab == 'review' and rows %}
+  <p class="meta" style="margin:0 0 12px">
+    The reader was not confident about these. Fix the text and send it through —
+    it becomes a lead on the next cycle.</p>
+{% endif %}
+
+{% if rows %}
+<div class="group stagger">
+  {% for r in rows %}
+  <div class="card" style="display:flex;gap:14px;align-items:flex-start">
+
+    {% if r.media %}
+      <a href="/media/{{ r.media[0].media_id }}" target="_blank" rel="noopener" style="flex:none">
+        <img src="/media/{{ r.media[0].media_id }}" alt="Post image" loading="lazy"
+             style="width:180px;max-height:260px;object-fit:cover;border-radius:11px;
+                    border:.5px solid var(--separator);background:var(--fill)">
+      </a>
+      {% if r.media|length > 1 %}
+        <div style="display:flex;flex-direction:column;gap:6px;flex:none">
+          {% for m in r.media[1:4] %}
+            <a href="/media/{{ m.media_id }}" target="_blank" rel="noopener">
+              <img src="/media/{{ m.media_id }}" alt="" loading="lazy"
+                   style="width:56px;height:56px;object-fit:cover;border-radius:8px"></a>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% else %}
+      <div style="width:180px;height:140px;border-radius:11px;background:var(--fill);
+                  display:flex;align-items:center;justify-content:center;flex:none">
+        <i data-lucide="image-off" style="width:22px;height:22px;color:var(--label-3)"></i>
+      </div>
+    {% endif %}
+
+    <div style="flex:1;min-width:0">
+      <div class="facts">
+        <span class="name">{{ r.person_name or 'Unknown' }}</span>
+        {% if r.ocr_conf %}
+          <span class="chip {{ 'chip-green' if r.ocr_conf >= 0.85 else ('chip-orange' if r.ocr_conf >= 0.72 else '') }}">
+            <i data-lucide="scan-text"></i>{{ '%.0f' % (r.ocr_conf * 100) }}% read</span>
+        {% else %}
+          <span class="chip"><i data-lucide="scan-line"></i>not read</span>
+        {% endif %}
+        {% if r.lead_id %}
+          <a class="chip chip-blue" href="{{ '/sellers' if r.side == 'SELL' else '/buyers' }}">
+            <i data-lucide="check"></i>{{ r.side }} · {{ r.score if r.score is not none else '–' }}</a>
+        {% endif %}
+        {% if r.group_id and groups.get(r.group_id) %}
+          <span class="chip">{{ groups[r.group_id] }}</span>{% endif %}
+        <span class="meta" style="margin-left:auto">{{ r.ts|ago }}</span>
+      </div>
+
+      {% if r.text %}<div class="snippet" style="margin-top:6px">{{ r.text }}</div>{% endif %}
+
+      <form method="post" action="/media/{{ r.post_id }}/text" style="margin-top:10px">
+        <input type="hidden" name="back" value="{{ back }}">
+        <textarea name="text" rows="4" class="post-text"
+                  style="width:100%;font-family:inherit;resize:vertical;
+                         border:.5px solid var(--separator);border-radius:10px;padding:9px;
+                         background:var(--bg);color:inherit"
+                  placeholder="Nothing was read — type what the image says">{{ r.ocr_text or '' }}</textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+          <button class="btn btn-primary">
+            <i data-lucide="send" style="width:14px;height:14px"></i>
+            {{ 'Re-read as lead' if r.lead_id else 'Send to classifier' }}</button>
+          {% if r.permalink %}
+            <a class="btn" href="{{ r.permalink }}" target="_blank" rel="noopener">
+              <i data-lucide="external-link" style="width:14px;height:14px"></i> Facebook</a>
+          {% endif %}
+          {% if r.person_id %}
+            <a class="btn btn-quiet" href="/people/{{ r.person_id }}">
+              <i data-lucide="user" style="width:14px;height:14px"></i> History</a>
+          {% endif %}
+        </div>
+      </form>
+    </div>
+
+    <form method="post" action="/media/{{ r.post_id }}/discard" style="flex:none">
+      <input type="hidden" name="back" value="{{ back }}">
+      <button class="btn btn-icon btn-bad" title="Not a lead">
+        <i data-lucide="x" style="width:15px;height:15px"></i></button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="group">
+  <div class="empty">
+    <i data-lucide="image" style="width:34px;height:34px"></i>
+    <h3>No images here</h3>
+    {% if tab == 'review' %}
+      <p>Everything with a picture was read well enough to go straight to the lists.</p>
+    {% else %}
+      <p>Image posts appear after the next collection cycle.</p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

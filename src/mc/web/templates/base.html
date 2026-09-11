@@ -20,7 +20,8 @@
       MC Leads
     </a>
     {% for href, label, key in [('/', 'Dashboard', 'home'), ('/sellers', 'Sellers', 'sellers'),
-                                ('/buyers', 'Buyers', 'buyers'), ('/matches', 'Matches', 'matches'),
+                                ('/buyers', 'Buyers', 'buyers'), ('/matches', 'Matches', 'matches'), ('/images', 'Images', 'images'),
+                                ('/groups', 'Sources', 'groups'),
                                 ('/health', 'Activity', 'health')] %}
       <a href="{{ href }}" class="tab" {% if page == key %}aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}

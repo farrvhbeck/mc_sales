@@ -13,6 +13,10 @@ dependencies = [
     "pyyaml>=6.0",
     "typer>=0.15",
     "python-multipart>=0.0.20",
+    # Rasmdan matn o'qish: PP-OCR modellari ONNX'da, CPU yetarli, kalit kerak emas
+    "rapidocr-onnxruntime>=1.4",
+    # Linux'da brauzer oynasini Xvfb virtual ekraniga yuborish uchun
+    "pyvirtualdisplay>=3.0",
 ]
 
 [project.scripts]

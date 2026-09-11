@@ -1,5 +1,8 @@
 # MC Lead Engine konfiguratsiyasi
 
+# DIQQAT: bu ro'yxat endi faqat BOSHLANG'ICH qiymat -- baza bo'sh bo'lsa bir marta
+# ko'chiriladi. Keyin guruhlar dashboard'ning `/groups` sahifasidan boshqariladi
+# (qo'shish havola bo'yicha, vaqtincha o'chirish, olib tashlash).
 groups:
   # 2026-09-06 da FB qidiruvidan tanlangan. Ko'proq guruh = ko'proq scroll = ban riski,
   # shuning uchun faqat aniq MC/DOT savdo guruhlari, faolligi bo'yicha tartiblangan.
@@ -24,7 +27,8 @@ collect:
   # Comment yig'ish hozircha o'chirilgan -- faqat postlardan qidiramiz.
   # Kod joyida turibdi, kerak bo'lsa true qilinadi.
   comments: false
-  # Rasmli postlar hozircha o'tkazib yuboriladi (OCR keyingi versiyada).
+  # Matni shundan qisqa post tashlanadi -- RASMI BO'LMASA. Rasmli post
+  # saqlanadi va OCR bosqichiga uzatiladi.
   min_text_chars: 25
   backfill_days: 7
   poll_interval_minutes: 15
@@ -37,6 +41,51 @@ collect:
   post_open_pause_seconds: [3.0, 7.0]  # comment yig'ish uchun post ochish orasida
   max_posts_per_run: 30
   headless: false                       # headful -- ban riski pastroq
+  # Oynani ekrandan yashirish: auto | hidden | visible.
+  # Linux'da Xvfb (haqiqiy brauzer, ko'rinmaydi), macOS'da oyna yashiriladi,
+  # Windows'da headless. `mc doctor` qaysi usul ishlayotganini aytadi.
+  window: auto
+  # Rasm yuklash chegaralari (havola imzolangan, keyin o'ladi -- darhol olamiz)
+  max_images_per_run: 40
+  max_image_mb: 8
+
+search:
+  # Keng qidiruv: guruhlardan tashqarida, butun ochiq FB bo'ylab.
+  # Dashboard'dagi tugma bu qiymatdan ustun turadi.
+  enabled: false
+  max_scrolls_per_query: 12
+  queries:
+    - "mc authority for sale"
+    - "selling my mc authority"
+    - "mc number for sale"
+    - "looking to buy mc authority"
+
+recheck:
+  # Sotuvda turgan authority o'lib qolishi yoki sotilib ketishi mumkin --
+  # eski leadlarni FMCSA'da qayta so'raymiz.
+  after_days: 14
+  max_per_run: 40
+
+audit:
+  # T0 regex filtri jim eskiradi: FB'da til o'zgaradi, regex esa qolib ketadi.
+  # Vaqti-vaqti bilan u tashlagan postlardan namuna olib LLM bilan tekshiramiz.
+  sample_size: 50
+  every_days: 7
+
+ocr:
+  # Rasm matni shu ishonchdan yuqori bo'lsa -- odatdagi ro'yxatga (topga) chiqadi.
+  # Pastda bo'lsa `/images` da qo'lda ko'riladi: rasm odamga ko'rsatiladi.
+  min_conf: 0.72
+  min_chars: 25
+  max_per_run: 60
+
+fraud:
+  # Bitta telefon/email ostida shuncha har xil MC ko'rinsa -- ogohlantirish
+  same_contact_min_mc: 3
+  same_contact_many_mc: -20
+  same_contact_many_accounts: -10
+  # Bitta MC ikki xil akkauntdan sotilyapti -- kim egasi noma'lum
+  mc_sold_by_many: -25
 
 llm:
   base_url: "https://api.groq.com/openai/v1"

@@ -23,6 +23,8 @@ Rules:
 - Brokers or drivers looking for an authority to work UNDER are NOISE, not BUY.
 - "Help you set up a brand new MC" / authority filing services -> NOISE.
 - If unsure, choose NOISE.
+- Text after "[image text]" was read from a picture by OCR and may be garbled; judge
+  it by what it clearly says, not by the noise around it.
 
 Reply with JSON only, in this exact shape:
 {"items": [{"i": 0, "side": "SELL"}, {"i": 1, "side": "NOISE"}]}"""
@@ -46,7 +48,13 @@ Buyers of these entities need the whole shell handed over, so pay close attentio
   (applied and was denied - "Amazon Rejected"), "never_applied" ("never applied to Amazon",
   which buyers often prefer because they can apply fresh), or null if not mentioned.
 - authority_age_years: convert months to years ("8-Month-Old MC" -> 0.67,
-  "at least 1 yr aged" -> 1.0, "2y+" -> 2.0)."""
+  "at least 1 yr aged" -> 1.0, "2y+" -> 2.0).
+
+A section marked "[image text]" was read out of a picture by OCR, so it may contain
+misread characters - especially in numbers. Use it, but if the same fact appears in
+both the typed text and the image text, trust the typed text. If a number in the
+image text looks malformed (wrong digit count for an MC/DOT, impossible price),
+return null rather than guessing."""
 
 EXTRACT_SCHEMA = {
     "type": "object",

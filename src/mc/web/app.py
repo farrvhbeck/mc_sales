@@ -6,14 +6,17 @@ import json
 import secrets
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .. import db, runs
+from .. import db, fraud, groups as G, runs, search
 from ..enrich import fmcsa
+from ..collect import discover
+from ..ocr import run as ocr_run
 from . import auth
 
 BASE = Path(__file__).parent
@@ -50,6 +53,8 @@ def logout():
 LEAD_SELECT = """
 SELECT l.*, pe.name AS person_name, pe.profile_url, pe.is_suspected_reseller,
        pe.n_sell, pe.n_buy,
+       p.ocr_text, p.ocr_conf, p.media_state,
+       COALESCE(p.n_media, 0)                                       AS n_media,
        COALESCE(p.text, c.text)                                     AS text,
        COALESCE(p.permalink, sp.permalink)                          AS permalink,
        COALESCE(p.created_at, c.created_at,
@@ -171,36 +176,85 @@ def _rows(side: str, args: dict) -> list[dict]:
         col = "l.authority_age_years" if side == "SELL" else "l.buyer_min_age_years"
         where.append(f"{col} >= ?")
         params.append(float(args["min_age"]) / 12)
-    if args.get("q"):
-        where.append("(COALESCE(p.text, c.text) LIKE ? OR pe.name LIKE ?)")
-        params += [f"%{args['q']}%", f"%{args['q']}%"]
+    if args.get("has_image"):
+        where.append("COALESCE(p.n_media, 0) > 0")
+
+    # Qidiruv: FTS5 (bm25 tartibi, rasm matni ham qamraladi). Indeks hali
+    # qurilmagan bo'lsa eski LIKE ga tushamiz -- qidiruv hech qachon o'lmaydi.
+    match_expr = search.to_match(args["q"]) if args.get("q") else None
+    fts = bool(match_expr) and search.ready()
+    if args.get("q") and not fts:
+        where.append("(COALESCE(p.text, c.text) LIKE ? OR p.ocr_text LIKE ? OR pe.name LIKE ?)")
+        params += [f"%{args['q']}%"] * 2 + [f"%{args['q']}%"]
 
     # Leads that meet the spec always sort above ones that only might.
     fit_rank = ("CASE l.fit_verdict WHEN 'pass' THEN 0 WHEN 'ask' THEN 1 "
                 "WHEN 'fail' THEN 3 ELSE 2 END")
+    default_order = f"{fit_rank}, l.score DESC NULLS LAST"
+    if fts:
+        # Qidirilganda mos kelish darajasi birinchi, keyin ball
+        default_order = "fts.rank, l.score DESC NULLS LAST"
     order = {
         "fresh": f"{ts_expr} DESC",
         "oldest": f"{ts_expr} ASC",
         "price": f"{price_col} DESC NULLS LAST",
         "price_asc": f"{price_col} ASC NULLS LAST",
         "age": "l.authority_age_years DESC NULLS LAST",
-    }.get(args.get("sort", ""), f"{fit_rank}, l.score DESC NULLS LAST")
+    }.get(args.get("sort", ""), default_order)
 
-    sql = f"{LEAD_SELECT} WHERE {' AND '.join(where)} ORDER BY {order} LIMIT 300"
+    join = ""
+    head: list = []
+    if fts:
+        join = ("\nJOIN (SELECT rowid, bm25(search_index) AS rank FROM search_index "
+                "WHERE search_index MATCH ?) fts ON fts.rowid = l.lead_id")
+        head.append(match_expr)
+
+    sql = f"{LEAD_SELECT}{join} WHERE {' AND '.join(where)} ORDER BY {order} LIMIT 300"
 
     with db.connect() as conn:
-        rows = [dict(r) for r in conn.execute(sql, params)]
+        rows = [dict(r) for r in conn.execute(sql, head + params)]
 
     for r in rows:
         r["breakdown"] = json.loads(r["score_breakdown"]) if r["score_breakdown"] else []
         r["fit_reasons"] = json.loads(r["fit_reasons"]) if r["fit_reasons"] else []
         r["fit_missing"] = json.loads(r["fit_missing"]) if r["fit_missing"] else []
         r["fmcsa"] = fmcsa.for_lead(r) if r["side"] == "SELL" else None
+        r["flags"] = json.loads(r["flags"]) if r.get("flags") else []
+    _attach_media(rows)
+    alerts = fmcsa.alerts_for([r["lead_id"] for r in rows])
+    for r in rows:
+        r["alerts"] = alerts.get(r["lead_id"], [])
     return rows
 
 
+def _media_of(post_ids: list[str]) -> dict[str, list[dict]]:
+    """post_id -> yuklab olingan rasmlar. Bitta so'rov, 300 ta emas."""
+    ids = [i for i in dict.fromkeys(post_ids) if i]
+    if not ids:
+        return {}
+    out: dict[str, list[dict]] = {}
+    with db.connect() as conn:
+        # SQLite o'zgaruvchilar chegarasiga urilmaslik uchun bo'laklab
+        for start in range(0, len(ids), 400):
+            chunk = ids[start : start + 400]
+            q = ",".join("?" * len(chunk))
+            for r in conn.execute(
+                f"""SELECT post_id, media_id, width, height, ocr_conf FROM post_media
+                    WHERE post_id IN ({q}) AND local_path IS NOT NULL
+                    ORDER BY created_at""", chunk):
+                out.setdefault(r["post_id"], []).append(dict(r))
+    return out
+
+
+def _attach_media(rows: list[dict]) -> None:
+    by_post = _media_of([r["source_post_id"] or r["source_id"] for r in rows])
+    for r in rows:
+        r["media"] = by_post.get(r["source_post_id"] or r["source_id"], [])
+
+
 def _group_names() -> dict[str, str]:
-    return {g["id"]: g["name"] for g in db.load_config()["groups"]}
+    """Filtr uchun guruh nomlari -- endi bazadan, chunki ular UI dan boshqariladi."""
+    return G.names()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -229,6 +283,11 @@ def home(request: Request):
     n_keys = max(1, len(_load_keys()))
     for r in top:
         r["fmcsa"] = fmcsa.for_lead(r) if r["side"] == "SELL" else None
+        r["flags"] = json.loads(r["flags"]) if r.get("flags") else []
+    _attach_media(top)
+    alerts = fmcsa.alerts_for([r["lead_id"] for r in top])
+    for r in top:
+        r["alerts"] = alerts.get(r["lead_id"], [])
 
     return tpl.TemplateResponse(request, "home.html", {
         "kpi": kpi, "top": top, "health": health,
@@ -387,8 +446,11 @@ def person(request: Request, person_id: str):
         leads = [dict(r) for r in conn.execute(
             LEAD_SELECT + " WHERE l.person_id = ? ORDER BY ts DESC", (person_id,)
         )]
+    for r in leads:
+        r["flags"] = json.loads(r["flags"]) if r.get("flags") else []
     return tpl.TemplateResponse(request, "person.html", {
         "p": dict(p) if p else None, "leads": leads, "page": "",
+        "linked": fraud.linked_accounts(person_id),
     })
 
 
@@ -409,10 +471,155 @@ def health(request: Request):
         errors = [dict(r) for r in conn.execute(
             "SELECT source_id, error FROM classify_state WHERE stage='error' LIMIT 20"
         )]
+    cfg = db.load_config()
+    group_rows = G.all_groups()
+    st = G.stats()
+    for g in group_rows:
+        g.update(st.get(g["group_id"], {"posts": 0, "leads": 0}))
+
     return tpl.TemplateResponse(request, "health.html", {
         "h": h, "usage": usage, "stages": stages, "runs": runs.latest(25),
         "counts": counts, "errors": errors, "page": "health",
+        "audit": db.get_setting("audit_last"),
+        "group_rows": group_rows, "broad_on": discover.is_on(cfg),
     })
+
+
+# --- Rasmlar --------------------------------------------------------------
+
+
+@app.get("/media/{media_id}")
+def media_file(media_id: str):
+    """Yuklab olingan rasmni beradi. Parol himoyasi middleware orqali."""
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT local_path FROM post_media WHERE media_id = ?", (media_id,)
+        ).fetchone()
+    if not row or not row["local_path"]:
+        return HTMLResponse("Rasm topilmadi", status_code=404)
+    path = (db.MEDIA_DIR / row["local_path"]).resolve()
+    # Yo'l bazadan keladi, lekin baribir media katalogidan chiqib ketmasin
+    if not str(path).startswith(str(db.MEDIA_DIR.resolve())) or not path.exists():
+        return HTMLResponse("Rasm topilmadi", status_code=404)
+    return FileResponse(path, media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=86400"})
+
+
+IMAGE_TABS = [("review", "Needs review"), ("ok", "Read OK"), ("", "All")]
+
+
+@app.get("/images", response_class=HTMLResponse)
+def images(request: Request):
+    """Rasmli postlar. OCR ishonchsiz o'qiganlari birinchi tabda turadi.
+
+    Bu sahifaning maqsadi -- OCR xato qilganda ish to'xtamasligi: rasm odamning
+    o'ziga ko'rsatiladi, u matnni tuzatib navbatga qaytaradi.
+    """
+    tab = request.query_params.get("tab", "review")
+    where = "COALESCE(p.n_media, 0) > 0"
+    params: list = []
+    if tab == "review":
+        where += " AND COALESCE(p.media_state, 'review') = 'review'"
+    elif tab == "ok":
+        where += " AND p.media_state = 'ok'"
+
+    with db.connect() as conn:
+        rows = [dict(r) for r in conn.execute(
+            f"""SELECT p.post_id, p.text, p.ocr_text, p.ocr_conf, p.media_state,
+                       p.permalink, p.group_id,
+                       COALESCE(p.created_at, p.first_seen_at) AS ts,
+                       pe.name AS person_name, pe.person_id,
+                       cs.stage,
+                       l.lead_id, l.side, l.score
+                FROM posts p
+                LEFT JOIN people pe ON pe.person_id = p.person_id
+                LEFT JOIN classify_state cs ON cs.source_id = p.post_id
+                LEFT JOIN leads l ON l.source_id = p.post_id
+                WHERE {where}
+                ORDER BY ts DESC LIMIT 200""", params)]
+        counts = {}
+        for key, cond in [("review", "COALESCE(media_state, 'review') = 'review'"),
+                          ("ok", "media_state = 'ok'"), ("", "1=1")]:
+            counts[key] = conn.execute(
+                f"SELECT COUNT(*) FROM posts WHERE COALESCE(n_media, 0) > 0 AND {cond}"
+            ).fetchone()[0]
+        by_post = _media_of([r["post_id"] for r in rows])
+        for r in rows:
+            r["media"] = by_post.get(r["post_id"], [])
+
+    return tpl.TemplateResponse(request, "images.html", {
+        "rows": rows, "tab": tab, "tabs": IMAGE_TABS, "counts": counts,
+        "groups": _group_names(), "page": "images",
+    })
+
+
+@app.post("/media/{post_id}/text")
+def media_text(post_id: str, text: str = Form(""), back: str = Form("/images")):
+    """Odam OCR matnini tuzatdi -> post klassifikatsiya navbatiga qaytadi."""
+    ocr_run.promote(post_id, text)
+    return RedirectResponse(back, status_code=303)
+
+
+@app.post("/media/{post_id}/discard")
+def media_discard(post_id: str, back: str = Form("/images")):
+    ocr_run.discard(post_id)
+    return RedirectResponse(back, status_code=303)
+
+
+# --- Guruhlar va keng qidiruv --------------------------------------------
+
+
+@app.get("/groups", response_class=HTMLResponse)
+def groups_page(request: Request):
+    cfg = db.load_config()
+    rows = G.all_groups()
+    st = G.stats()
+    for r in rows:
+        r.update(st.get(r["group_id"], {"posts": 0, "leads": 0, "last_post": None}))
+
+    search_stats = st.get(G.SEARCH_GROUP, {"posts": 0, "leads": 0, "last_post": None})
+    with db.connect() as conn:
+        health = db.get_health(conn)
+
+    return tpl.TemplateResponse(request, "groups.html", {
+        "rows": rows, "page": "groups",
+        "broad_on": discover.is_on(cfg),
+        "queries": discover.queries(cfg),
+        "search_stats": search_stats,
+        "search_last": (health.get("search_last_run") or {}).get("value"),
+        "message": request.query_params.get("m"),
+    })
+
+
+@app.post("/groups/add")
+def groups_add(url: str = Form(""), back: str = Form("/groups")):
+    res = G.add(url)
+    return RedirectResponse(f"{back}?m={quote(res['message'])}", status_code=303)
+
+
+@app.post("/groups/{group_id}/toggle")
+def groups_toggle(group_id: str, on: str = Form("1"), back: str = Form("/groups")):
+    G.set_enabled(group_id, on == "1")
+    return RedirectResponse(back, status_code=303)
+
+
+@app.post("/groups/{group_id}/remove")
+def groups_remove(group_id: str, back: str = Form("/groups")):
+    G.remove(group_id)
+    return RedirectResponse(f"{back}?m={quote('Guruh ro‘yxatdan chiqarildi')}",
+                            status_code=303)
+
+
+@app.post("/groups/search")
+def groups_search(on: str = Form(""), queries: str = Form(""), back: str = Form("/groups")):
+    """Keng qidiruvni yoqish/o'chirish va so'rovlarni tahrirlash."""
+    db.set_setting("broad_search", on == "1")
+    qs = [q.strip() for q in queries.splitlines() if q.strip()]
+    if qs:
+        db.set_setting("search_queries", qs)
+    msg = ("Keng qidiruv yoqildi — keyingi siklda guruhlardan tashqarida ham qidiradi"
+           if on == "1" else "Keng qidiruv o‘chirildi — faqat tanlangan guruhlar")
+    return RedirectResponse(f"{back}?m={quote(msg)}", status_code=303)
 
 
 @app.post("/lead/{lead_id}/status")

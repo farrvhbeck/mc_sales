@@ -75,10 +75,55 @@ def _format(lead: dict, fm: dict | None) -> str:
     return "\n".join(lines)
 
 
+def send_alerts(dry_run: bool = False) -> int:
+    """FMCSA'da o'zgargan leadlar haqida xabar.
+
+    Bu yangi lead emas, **eskisining o'zgarishi**: siz bog'lanib turgan
+    sotuvchining authority'si o'lgan bo'lishi mumkin. Shuning uchun alohida
+    yuboriladi va ball chegarasiga bog'liq emas.
+    """
+    with db.connect() as conn:
+        rows = [dict(r) for r in conn.execute(
+            """SELECT a.alert_id, a.lead_id, a.text, l.mc_number, l.dot_number,
+                      l.status, pe.name AS person_name,
+                      (SELECT permalink FROM posts
+                       WHERE post_id = COALESCE(l.source_post_id, l.source_id)) AS permalink
+               FROM lead_alerts a
+               JOIN leads l ON l.lead_id = a.lead_id
+               LEFT JOIN people pe ON pe.person_id = l.person_id
+               WHERE a.notified_at IS NULL
+               ORDER BY a.created_at LIMIT 20""")]
+
+    sent = 0
+    for r in rows:
+        text = "\n".join(filter(None, [
+            "🔁 <b>O'zgarish</b>",
+            "",
+            f"👤 {r['person_name'] or '—'} · MC {r['mc_number'] or '—'}",
+            f"⚠️ {r['text']}",
+            f"Lead holati: {r['status']}",
+            "",
+            r["permalink"] or "",
+        ]))
+        if dry_run:
+            print(text)
+            print("-" * 60)
+            sent += 1
+            continue
+        if _send(text):
+            with db.connect() as conn:
+                conn.execute("UPDATE lead_alerts SET notified_at = ? WHERE alert_id = ?",
+                             (time.time(), r["alert_id"]))
+            sent += 1
+            time.sleep(1)
+    return sent
+
+
 def run(dry_run: bool = False) -> dict:
     cfg = db.load_config()
     n = cfg["notify"]
-    stats = {"sent": 0, "skipped": 0}
+    stats = {"sent": 0, "skipped": 0, "alerts": 0}
+    stats["alerts"] = send_alerts(dry_run=dry_run)
 
     with db.connect() as conn:
         rows = conn.execute(
