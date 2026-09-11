@@ -308,6 +308,7 @@ def discover(
 
     days = (since_days or (cfg.get("search") or {}).get("backfill_days")
             or cfg["collect"]["backfill_days"])
+    # Qo'lda chaqirilganda interval kutilmaydi -- siz shu daqiqada so'radingiz
     since_ts = time.time() - days * 86400
     queries = [query] if query else D.queries(cfg)
     typer.echo(f"{len(queries)} so'rov, {days} kunlik oyna")
@@ -691,7 +692,10 @@ def loop(interval: int = None):
                             # Bitta bosqich tushsa qolganini to'xtatmaymiz
                             typer.echo(f"  ✗ xato: {type(e).__name__}: {e}")
 
-                sleep = max(60, every - (time.time() - started))
+                # Sikl intervaldan uzoq cho'zilsa ham brauzerga dam beramiz:
+                # tinimsiz scroll -- akkaunt uchun eng katta xavf.
+                rest = cfg["collect"].get("min_rest_minutes", 5) * 60
+                sleep = max(rest, every - (time.time() - started))
                 typer.echo(f"[{time.strftime('%H:%M:%S')}] {int(sleep)}s kutish\n")
                 time.sleep(sleep)
         except KeyboardInterrupt:
@@ -1151,10 +1155,12 @@ def _pipeline():
                 out[g["group_id"]] = res
                 G.record_run(g["group_id"], res)
 
-            if discover.is_on(cfg):
+            if discover.is_on(cfg) and discover.due(cfg):
                 with db.connect() as conn:
                     db.set_health(conn, "collect_progress", "keng qidiruv")
                 out["search"] = discover.run(ctx, cfg, since_ts)
+            elif discover.is_on(cfg):
+                out["search"] = {"skipped": f"{discover.next_run_in(cfg) / 60:.0f} daqiqadan keyin"}
         with db.connect() as conn:
             db.set_health(conn, "collect_progress", "")
             if cfg["collect"].get("comments", False):

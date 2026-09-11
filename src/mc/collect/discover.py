@@ -48,6 +48,26 @@ def is_on(cfg: dict) -> bool:
     return bool((cfg.get("search") or {}).get("enabled", False))
 
 
+def due(cfg: dict) -> bool:
+    """Keng qidiruv vaqti keldimi?
+
+    Guruh feed'i har siklda tekshiriladi -- u yerda yangi post har daqiqada
+    paydo bo'ladi. Qidiruv esa boshqacha: u moslik bo'yicha tartiblangan va
+    natijasi soatlab o'zgarmaydi, shuning uchun har siklda takrorlash brauzer
+    vaqtini bekorga yeydi. Shuning uchun o'z intervali bor.
+    """
+    hours = (cfg.get("search") or {}).get("every_hours", 6)
+    last = db.get_setting("search_last_at") or 0
+    return (time.time() - last) >= hours * 3600
+
+
+def next_run_in(cfg: dict) -> float:
+    """Keyingi qidiruvgacha necha soniya qolgani (UI uchun)."""
+    hours = (cfg.get("search") or {}).get("every_hours", 6)
+    last = db.get_setting("search_last_at") or 0
+    return max(0.0, last + hours * 3600 - time.time())
+
+
 def sweep_search(ctx: BrowserContext, query: str, cfg: dict, since_ts: float) -> dict:
     """Bitta so'rov bo'yicha qidiruv natijalarini aylanib chiqadi."""
     c = cfg["collect"]
@@ -149,6 +169,7 @@ def run(ctx: BrowserContext, cfg: dict, since_ts: float) -> dict:
             out[q] = sweep_search(ctx, q, cfg, since_ts)
         except Exception as e:
             out[q] = {"error": f"{type(e).__name__}: {e}"[:200]}
+    db.set_setting("search_last_at", time.time())
     with db.connect() as conn:
         db.set_health(conn, "search_last_run", time.strftime("%Y-%m-%d %H:%M:%S"))
         db.set_health(conn, "search_last_result", str(out))

@@ -626,6 +626,8 @@ def groups_page(request: Request):
         "queries": discover.queries(cfg),
         "search_stats": search_stats,
         "search_last": (health.get("search_last_run") or {}).get("value"),
+        "search_every": (cfg.get("search") or {}).get("every_hours", 6),
+        "search_next_min": round(discover.next_run_in(cfg) / 60),
         "message": request.query_params.get("m"),
     })
 

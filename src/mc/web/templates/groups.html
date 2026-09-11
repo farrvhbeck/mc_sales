@@ -28,6 +28,14 @@
         <p class="meta" style="margin:8px 0 0">
           {{ search_stats.posts }} posts · {{ search_stats.leads }} leads
           {%- if search_last %} · last run {{ search_last }}{% endif %}</p>
+        <p class="meta" style="margin:4px 0 0">
+          Runs every {{ search_every }} h, on its own clock — search results are
+          ranked by relevance and barely move hour to hour, so repeating it every
+          cycle would only cost browser time.
+          {% if search_next_min > 0 %}Next run in
+            {{ (search_next_min // 60) ~ ' h ' ~ (search_next_min % 60) ~ ' min'
+               if search_next_min >= 60 else search_next_min ~ ' min' }}.
+          {% else %}Next cycle will run it.{% endif %}</p>
       {% endif %}
     </div>
     <label class="switch" style="flex:none">

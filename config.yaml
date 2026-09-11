@@ -40,6 +40,10 @@ collect:
   stop_after_quiet_scrolls: 3
   post_open_pause_seconds: [3.0, 7.0]  # comment yig'ish uchun post ochish orasida
   max_posts_per_run: 30
+  # Sikl tugagandan keyin kamida shuncha dam. Sikl intervaldan uzoq cho'zilsa
+  # (15 guruh + qidiruv) yangisi darhol boshlanib ketmasin -- tinimsiz scroll
+  # akkaunt uchun eng katta xavf.
+  min_rest_minutes: 5
   headless: false                       # headful -- ban riski pastroq
   # Oynani ekrandan yashirish: auto | hidden | visible.
   # Linux'da Xvfb (haqiqiy brauzer, ko'rinmaydi), macOS'da oyna yashiriladi,
@@ -54,6 +58,9 @@ search:
   # Dashboard'dagi tugma bu qiymatdan ustun turadi.
   enabled: false
   max_scrolls_per_query: 12
+  # Qidiruv natijasi moslik bo'yicha tartiblangan -- soatlab o'zgarmaydi.
+  # Shuning uchun har siklda emas, o'z intervali bilan yuradi.
+  every_hours: 6
   # Guruh feed'i xronologik, qidiruv esa mos kelish bo'yicha tartiblangan:
   # natijalarning katta qismi eski. 7 kunlik oyna bu yerda deyarli hammasini
   # tashlab yuboradi, shuning uchun oyna kengroq. Eski postning balli
