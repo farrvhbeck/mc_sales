@@ -171,11 +171,14 @@ def stats() -> dict[str, dict]:
 
 # --- slug -> id aniqlash (brauzer kerak) ---------------------------------
 
-# Guruh sahifasida id bir necha ko'rinishda uchraydi; qaysi biri chiqsa o'shani olamiz.
+# Guruh sahifasida id JSON kalitlarida turadi. `/groups/<id>/` shaklidagi
+# havolalar ISHLATILMAYDI: sahifaning yon panelida tavsiya etilgan boshqa
+# guruhlar ham shu shaklda uchraydi, va slug butunlay boshqa guruhga
+# bog'lanib qolishi mumkin edi.
 ID_PATTERNS = [
     re.compile(r'"groupID"\s*:\s*"(\d{6,})"'),
     re.compile(r'"group_id"\s*:\s*"(\d{6,})"'),
-    re.compile(r'/groups/(\d{6,})/'),
+    re.compile(r'"groupId"\s*:\s*"(\d{6,})"'),
 ]
 
 NO_ACCESS = ["join group", "you must be a member", "this content isn't available",
@@ -213,6 +216,12 @@ def resolve(ctx, group: dict, pause_rng: list[float] | None = None) -> dict:
         except Exception:
             pass
 
+        # Manzil qayta yo'naltirilgan bo'lsa, id o'sha yerda ham ko'rinsin --
+        # bu biz to'g'ri guruhni olganimizning ikkinchi dalili.
+        in_url = re.search(r"/groups/(\d{6,})", page.url)
+        if in_url:
+            gid = in_url.group(1)
+
         if not gid:
             reason = ("guruh yopiq yoki a'zo emassiz"
                       if any(k in body for k in NO_ACCESS) else "id topilmadi")
@@ -222,7 +231,11 @@ def resolve(ctx, group: dict, pause_rng: list[float] | None = None) -> dict:
         with db.connect() as conn:
             exists = conn.execute("SELECT 1 FROM fb_groups WHERE group_id = ?", (gid,)).fetchone()
             if exists:
-                conn.execute("DELETE FROM fb_groups WHERE group_id = ?", (group["group_id"],))
+                # Bu guruh allaqachon ro'yxatda. Faqat KUTAYOTGAN qatorni olib
+                # tashlaymiz -- mavjud guruhga hech qachon tegilmaydi.
+                conn.execute(
+                    "DELETE FROM fb_groups WHERE group_id = ? AND group_id LIKE 'slug:%'",
+                    (group["group_id"],))
             else:
                 conn.execute(
                     """UPDATE fb_groups SET group_id = ?, name = COALESCE(?, name),

@@ -330,6 +330,50 @@ def discover(
     typer.echo(f"\nJami yangi post: {sum(v.get('new', 0) for v in out.values())}")
 
 
+@app.command("find-groups")
+def find_groups(
+    add: bool = typer.Option(False, help="Faol topilganlarni darhol qo'shish"),
+    max_age_days: int = typer.Option(45, help="Oxirgi posti shundan yangi bo'lsa -- faol"),
+    probe_limit: int = typer.Option(25, help="Nechta nomzad tekshirilsin"),
+):
+    """FB qidiruvidan yangi MC/DOT guruhlarini topadi va faolligini o'lchaydi.
+
+    Manba ro'yxati eskiradi -- guruhlar o'ladi, yangilari ochiladi. Buni oyda
+    bir marta yurgizib turing. Loop ishlab turganda ishlatmang.
+    """
+    from . import groups as G
+    from .collect import findgroups
+    from .collect.browser import browser
+
+    db.init()
+    cfg = db.load_config()
+    with browser(headless=cfg["collect"]["headless"],
+                 window=cfg["collect"].get("window", "auto")) as ctx:
+        rows = findgroups.run(ctx, max_age_days=max_age_days, probe_limit=probe_limit)
+
+    if not rows:
+        typer.echo("Yangi guruh topilmadi.")
+        return
+
+    for r in rows:
+        when = (time.strftime("%m-%d", time.localtime(r["newest"]))
+                if r["newest"] else "—")
+        mark = "✅" if r["fresh"] else "💤"
+        typer.echo(f" {mark} {str(r['members'] or '?'):>7} a'zo  oxirgi {when}  "
+                   f"{r['name'][:46]:<46} {r['id']}")
+        if r["access"] != "ochiq":
+            typer.echo(f"      {r['access']}")
+
+    fresh = [r for r in rows if r["fresh"] and r["access"] == "ochiq"]
+    typer.echo(f"\n{len(fresh)} ta faol guruh topildi.")
+    if add:
+        for r in fresh:
+            G.add(f"https://www.facebook.com/groups/{r['id']}/", name=r["name"])
+        typer.echo(f"Hammasi qo'shildi. `mc groups` bilan ko'ring.")
+    elif fresh:
+        typer.echo("Qo'shish uchun: `mc find-groups --add`, yoki /groups sahifasidan birma-bir.")
+
+
 @app.command()
 def audit(sample: int = typer.Option(None, help="Nechta post tekshirilsin"),
           force: bool = typer.Option(True, help="Vaqti kelmagan bo'lsa ham")):

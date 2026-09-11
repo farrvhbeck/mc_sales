@@ -60,6 +60,7 @@ uv run mc stats       # qisqacha holat
 uv run mc runs        # oxirgi yangilanishlar va ular muvaffaqiyatli bo'lganmi
 uv run mc reprocess   # klassifikatsiyani noldan (qayta scrape qilmasdan)
 uv run mc reindex     # qidiruv indeksini qayta qurish
+uv run mc find-groups # FB qidiruvidan yangi guruhlarni topish (--add bilan qo'shish)
 uv run mc discover    # keng qidiruvni bir marta yurgizish (--enable bilan doimiy)
 uv run mc audit       # T0 filtri nechta haqiqiy leadni tashlayotganini o'lchash
 uv run mc enrich --recheck-only   # eskirgan leadlarni FMCSA'da qayta so'rash
@@ -127,6 +128,13 @@ yoziladi (`config.yaml` → `fraud`).
 ekrani (brauzer haqiqiy headful bo'lib qoladi, faqat ekranga chiqmaydi; FB uchun
 headless'dan xavfsizroq), macOS'da oyna yashiriladi, Windows'da headless.
 Qaysi usul ishlayotganini `mc doctor` aytadi.
+
+**Manba ro'yxati o'zi eskiradi.** Guruhlar o'ladi, yangilari ochiladi.
+`mc find-groups` FB'ning o'z guruh qidiruvidan yangilarini topadi, har birini
+ochib **a'zo soni va oxirgi post vaqtini** o'lchaydi, va faqat faollarini
+tavsiya qiladi. Oyda bir marta yurgizish yetadi. 2026-09-12 da birinchi yurish
+130 guruh topdi, shundan 74 tasi mavzuga oid va ro'yxatda yo'q edi; faolligi
+bo'yicha 7 tasi qo'shildi (eng kattasi 11.3K a'zo).
 
 **Manbalar — bazada, kodda emas.** `config.yaml` dagi guruhlar ro'yxati endi faqat
 boshlang'ich qiymat: baza bo'sh bo'lsa bir marta ko'chiriladi. Keyin guruh qo'shish
