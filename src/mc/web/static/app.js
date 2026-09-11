@@ -165,12 +165,17 @@
           <span class="meta" style="font-size:11px">${when}</span></div>`;
       }).join("");
 
-      const Q = [["classify", "Waiting to analyse"], ["score", "Waiting to score"],
-                 ["notify", "Ready to send"]];
-      queue.innerHTML = Q.map(([k, l]) => {
+      // "Ready to send" -- ko'rish mumkin bo'lgan yagona navbat, shuning uchun
+      // u havola: qolgan ikkitasi shunchaki hisoblagich.
+      const Q = [["classify", "Waiting to analyse", null],
+                 ["score", "Waiting to score", null],
+                 ["notify", "Ready to send", "/leads?unsent=1&min_score=60"]];
+      queue.innerHTML = Q.map(([k, l, href]) => {
         const n = d.queue[k] || 0;
-        return `<div class="live-q" style="color:${n ? "var(--label)" : "var(--label-3)"}">
-          <span>${l}</span><span class="n">${n}</span></div>`;
+        const tag = href && n ? "a" : "div";
+        const attr = href && n ? ` href="${href}"` : "";
+        return `<${tag} class="live-q"${attr} style="color:${n ? "var(--label)" : "var(--label-3)"}">
+          <span>${l}</span><span class="n">${n}</span></${tag}>`;
       }).join("");
 
       const pct = d.budget ? Math.min(100, d.tokens / d.budget * 100) : 0;

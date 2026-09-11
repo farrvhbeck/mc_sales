@@ -275,6 +275,49 @@ def enrich(limit: int = 200,
 
 
 @app.command()
+def discover(
+    query: str = typer.Option(None, help="Bitta so'rov (default: sozlamadagilar)"),
+    since_days: int = typer.Option(None, help="Necha kunlik tarix"),
+    enable: bool = typer.Option(False, help="Keng qidiruvni doimiy yoqib qo'yish"),
+):
+    """Keng qidiruv: guruhlardan tashqarida, butun ochiq FB bo'ylab.
+
+    Loop ishlab turganda ishlatmang -- Chromium profili bitta, ikki jarayon
+    uni talashadi va brauzer o'ladi (`mc stop` bilan to'xtating).
+    """
+    from . import runs
+    from .collect import discover as D
+    from .collect.browser import SessionDead, browser
+
+    db.init()
+    cfg = db.load_config()
+    if enable:
+        db.set_setting("broad_search", True)
+        typer.echo("Keng qidiruv doimiy yoqildi (har siklda ishlaydi).")
+
+    days = since_days or cfg["collect"]["backfill_days"]
+    since_ts = time.time() - days * 86400
+    queries = [query] if query else D.queries(cfg)
+
+    try:
+        with runs.track("manual") as r, r.step("collect") as st:
+            out = {}
+            with browser(headless=cfg["collect"]["headless"],
+                         window=cfg["collect"].get("window", "auto")) as ctx:
+                for i, q in enumerate(queries, 1):
+                    typer.echo(f"→ [{i}/{len(queries)}] {q!r}")
+                    res = D.sweep_search(ctx, q, cfg, since_ts)
+                    out[q] = res
+                    typer.echo(f"  {res}")
+            st["result"] = out
+    except SessionDead as e:
+        typer.echo(f"FB sessiya tushdi: {e}")
+        raise typer.Exit(code=2)
+
+    typer.echo(f"\nJami yangi post: {sum(v.get('new', 0) for v in out.values())}")
+
+
+@app.command()
 def audit(sample: int = typer.Option(None, help="Nechta post tekshirilsin"),
           force: bool = typer.Option(True, help="Vaqti kelmagan bo'lsa ham")):
     """T0 regex filtri nechta haqiqiy leadni tashlab yuborayotganini o'lchaydi.
@@ -1005,7 +1048,7 @@ def _pipeline():
     from .collect import discover
     from .fraud import run as fraud_run
     from .ocr.run import run as ocr_run
-    from .collect.browser import browser
+    from .collect.browser import SessionDead, browser
     from .collect.feed import sweep_feed
     from .collect.post import fetch_comments, pending_posts
     from .audit import run as audit_run
@@ -1015,6 +1058,24 @@ def _pipeline():
     cfg = db.load_config()
 
     def _collect():
+        """Bir sikl yig'ish. Brauzer tushib qolsa bir marta qayta uriniladi.
+
+        Chromium profil bitta: agar boshqa jarayon (qo'lda `mc collect`, sinov
+        skripti) o'sha profilni ushlab tursa, yangi nusxa darhol o'ladi va
+        `TargetClosedError` chiqadi. Bir sikl yo'qotmaslik uchun qayta uriniladi.
+        """
+        for attempt in (1, 2):
+            try:
+                return _collect_once()
+            except SessionDead:
+                raise
+            except Exception as e:
+                if attempt == 2 or "Target" not in type(e).__name__ + str(e):
+                    raise
+                typer.echo(f"  brauzer tushdi ({type(e).__name__}) — qayta urinish")
+                time.sleep(10)
+
+    def _collect_once():
         since_ts = time.time() - cfg["collect"]["backfill_days"] * 86400
         out = {}
         with browser(headless=cfg["collect"]["headless"],

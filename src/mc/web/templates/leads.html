@@ -2,14 +2,15 @@
 {% import "_lead.html" as L %}
 {% set back = request.url.path ~ ('?' ~ request.url.query if request.url.query else '') %}
 {% set is_sell = side == 'SELL' %}
+{% set both = side is none %}
 {% set adv = args.group or args.amazon or args.package or args.price_min or args.price_max
              or args.min_age or args.has_image or args.range == 'custom' %}
-{% block title %}{{ 'Sellers' if is_sell else 'Buyers' }}{% endblock %}
+{% block title %}{{ 'Leads' if both else ('Sellers' if is_sell else 'Buyers') }}{% endblock %}
 
 {% block content %}
 
 <div class="title-row">
-  <h1 class="large">{{ 'Sellers' if is_sell else 'Buyers' }}</h1>
+  <h1 class="large">{{ 'Leads' if both else ('Sellers' if is_sell else 'Buyers') }}</h1>
   <span class="title-count">{{ rows|length }} shown</span>
 </div>
 
@@ -17,7 +18,7 @@
 <div class="segmented" role="tablist">
   {% for val in ['', 'new', 'contacted', 'qualified', 'matched', 'closed', 'duplicate', 'junk'] %}
     {% set n = (counts._all if val == '' else counts.get(val)) or 0 %}
-    <a role="tab" href="{{ request.url.path }}?status={{ val }}"
+    <a role="tab" href="{{ request.url.path }}?status={{ val }}{{ '&side=' ~ args.side if args.side }}{{ '&unsent=1' if args.unsent }}{{ '&min_score=' ~ args.min_score if args.min_score }}"
        {% if (args.status or '') == val %}aria-current="true"{% endif %}>
       {{ status_labels[val] }}<span class="n">{{ n }}</span></a>
   {% endfor %}
@@ -25,6 +26,7 @@
 
 <form method="get" id="filters">
   <input type="hidden" name="status" value="{{ args.status or '' }}">
+  {% if args.unsent %}<input type="hidden" name="unsent" value="1">{% endif %}
 
   <div class="toolbar">
     <label class="field grow">
@@ -40,6 +42,17 @@
         {% endfor %}
       </select>
     </label>
+
+    {% if both %}
+    <label class="field select-wrap">
+      <i data-lucide="git-compare" style="width:15px;height:15px"></i>
+      <select name="side">
+        <option value="">Both sides</option>
+        <option value="SELL" {{ 'selected' if args.side == 'SELL' }}>Sellers</option>
+        <option value="BUY"  {{ 'selected' if args.side == 'BUY' }}>Buyers</option>
+      </select>
+    </label>
+    {% endif %}
 
     <label class="field select-wrap">
       <i data-lucide="arrow-up-down" style="width:15px;height:15px"></i>
@@ -136,14 +149,17 @@
 {% if rows %}
 <div class="group stagger">
   {% for r in rows %}
+    {% set row_sell = r.side == 'SELL' %}
     <div class="row tappable {{ 'dim' if r.status in ('junk', 'duplicate') }}" data-detail="{{ r.lead_id }}">
       {{ L.ring(r.score) }}
       {{ L.thumb(r) }}
 
       <div style="flex:1;min-width:0">
         <div class="facts">
+          {% if both %}<span class="chip {{ 'chip-green' if row_sell else 'chip-blue' }}">
+            {{ 'Selling' if row_sell else 'Buying' }}</span>{% endif %}
           <span class="name">{{ r.person_name or 'Unknown' }}</span>
-          {{ L.facts(r, is_sell) }}
+          {{ L.facts(r, row_sell) }}
           <span class="meta" style="margin-left:auto">{{ r.ts|ago }}</span>
         </div>
         <div class="snippet">{{ r.text }}</div>
@@ -179,7 +195,7 @@
         {% endif %}
       </div>
     </div>
-    {{ L.detail(r, back, is_sell) }}
+    {{ L.detail(r, back, r.side == 'SELL') }}
   {% endfor %}
 </div>
 {% else %}
@@ -192,7 +208,11 @@
     {% elif args.q or adv or args.range %}
       <p>Widen the time range or clear a filter.</p>
     {% else %}
-      <p>The engine collects every 15 minutes. Start it with <code>uv run mc start</code>.</p>
+      {% if args.unsent %}
+        <p>Everything scored has already gone out to Telegram.</p>
+      {% else %}
+        <p>The engine collects every 15 minutes. Start it with <code>uv run mc start</code>.</p>
+      {% endif %}
     {% endif %}
   </div>
 </div>

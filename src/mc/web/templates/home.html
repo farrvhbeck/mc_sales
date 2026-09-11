@@ -13,7 +13,7 @@
   {% for label, val, href, colour, icon in [
       ('Sellers waiting', kpi.sellers, '/sellers?status=new', 'var(--green)', 'store'),
       ('Buyers waiting',  kpi.buyers,  '/buyers?status=new',  'var(--blue)',  'hand-coins'),
-      ('Strong leads',    kpi.hot,     '/sellers?min_score=65', 'var(--orange)', 'flame'),
+      ('Strong leads',    kpi.hot,     '/leads?min_score=65&status=new', 'var(--orange)', 'flame'),
       ('Introductions',   kpi.matches, '/matches', 'var(--indigo)', 'git-compare')] %}
     <a class="stat" href="{{ href }}">
       <div class="k" style="display:flex;align-items:center;gap:6px">

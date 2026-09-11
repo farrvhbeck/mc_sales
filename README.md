@@ -60,6 +60,7 @@ uv run mc stats       # qisqacha holat
 uv run mc runs        # oxirgi yangilanishlar va ular muvaffaqiyatli bo'lganmi
 uv run mc reprocess   # klassifikatsiyani noldan (qayta scrape qilmasdan)
 uv run mc reindex     # qidiruv indeksini qayta qurish
+uv run mc discover    # keng qidiruvni bir marta yurgizish (--enable bilan doimiy)
 uv run mc audit       # T0 filtri nechta haqiqiy leadni tashlayotganini o'lchash
 uv run mc enrich --recheck-only   # eskirgan leadlarni FMCSA'da qayta so'rash
 ```

@@ -441,6 +441,8 @@ h1.large { font-size: 30px; line-height: 1.1; font-weight: 700; letter-spacing: 
 .live-step.error .ic { color: var(--red); }
 .live-step.active .ic { color: var(--blue); }
 .live-q { display: flex; justify-content: space-between; font-size: 12.5px; padding: 2px 0; }
+a.live-q { color: inherit; text-decoration: none; }
+a.live-q:hover { color: var(--blue) !important; }
 .live-q .n { font-variant-numeric: tabular-nums; font-weight: 600; }
 .bar { height: 4px; border-radius: 999px; background: var(--fill-2); overflow: hidden; }
 .bar > i { display: block; height: 100%; border-radius: 999px; background: var(--green);

@@ -117,9 +117,18 @@ def _parse_date(v: str | None) -> float | None:
         return None
 
 
-def _rows(side: str, args: dict) -> list[dict]:
-    where = ["l.side = ?"]
-    params: list = [side]
+def _rows(side: str | None, args: dict) -> list[dict]:
+    """Lead qatorlari. `side` None bo'lsa ikkala tomon ham chiqadi.
+
+    Ikkala tomonni birga ko'rsatish kerak, chunki "kuchli leadlar" va
+    "yuborishga tayyor" kabi savollar tomonga bog'liq emas.
+    """
+    side = side or (args.get("side") or "").upper() or None
+    where = []
+    params: list = []
+    if side in ("SELL", "BUY"):
+        where.append("l.side = ?")
+        params.append(side)
     ts_expr = "COALESCE(p.created_at, c.created_at, p.first_seen_at, c.first_seen_at)"
 
     if args.get("min_score"):
@@ -165,15 +174,23 @@ def _rows(side: str, args: dict) -> list[dict]:
     if args.get("package"):
         where.append("(l.includes_bank = 1 AND l.includes_email = 1 AND l.includes_phone = 1)")
 
-    price_col = "l.price_usd" if side == "SELL" else "l.buyer_budget_usd"
+    # Aralash ro'yxatda sotuvchining narxi va xaridorning byudjeti bitta ustun
+    price_col = ("l.price_usd" if side == "SELL" else
+                 "l.buyer_budget_usd" if side == "BUY" else
+                 "COALESCE(l.price_usd, l.buyer_budget_usd)")
     if args.get("price_min"):
         where.append(f"{price_col} >= ?")
         params.append(int(args["price_min"]))
     if args.get("price_max"):
         where.append(f"{price_col} <= ?")
         params.append(int(args["price_max"]))
+    if args.get("unsent"):
+        # "Yuborishga tayyor" -- Telegram'ga hali ketmagan yangi leadlar
+        where.append("l.status = 'new' AND l.lead_id NOT IN (SELECT lead_id FROM notified)")
     if args.get("min_age"):
-        col = "l.authority_age_years" if side == "SELL" else "l.buyer_min_age_years"
+        col = ("l.authority_age_years" if side == "SELL" else
+               "l.buyer_min_age_years" if side == "BUY" else
+               "COALESCE(l.authority_age_years, l.buyer_min_age_years)")
         where.append(f"{col} >= ?")
         params.append(float(args["min_age"]) / 12)
     if args.get("has_image"):
@@ -209,7 +226,8 @@ def _rows(side: str, args: dict) -> list[dict]:
                 "WHERE search_index MATCH ?) fts ON fts.rowid = l.lead_id")
         head.append(match_expr)
 
-    sql = f"{LEAD_SELECT}{join} WHERE {' AND '.join(where)} ORDER BY {order} LIMIT 300"
+    clause = " AND ".join(where) if where else "1=1"
+    sql = f"{LEAD_SELECT}{join} WHERE {clause} ORDER BY {order} LIMIT 300"
 
     with db.connect() as conn:
         rows = [dict(r) for r in conn.execute(sql, head + params)]
@@ -365,11 +383,15 @@ def api_status():
     }
 
 
-def _status_counts(side: str) -> dict[str, int]:
+def _status_counts(side: str | None) -> dict[str, int]:
     with db.connect() as conn:
-        rows = conn.execute(
-            "SELECT status, COUNT(*) n FROM leads WHERE side = ? GROUP BY status", (side,)
-        ).fetchall()
+        if side:
+            rows = conn.execute(
+                "SELECT status, COUNT(*) n FROM leads WHERE side = ? GROUP BY status",
+                (side,)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT status, COUNT(*) n FROM leads GROUP BY status").fetchall()
     counts = {r["status"]: r["n"] for r in rows}
     counts["_all"] = sum(n for s, n in counts.items() if s not in ("junk", "duplicate"))
     return counts
@@ -392,6 +414,23 @@ def buyers(request: Request):
         "rows": _rows("BUY", args), "side": "BUY", "counts": _status_counts("BUY"),
         "args": args, "statuses": STATUSES, "status_labels": STATUS_LABELS,
         "ranges": RANGES, "groups": _group_names(), "page": "buyers",
+    })
+
+
+@app.get("/leads", response_class=HTMLResponse)
+def leads_both(request: Request):
+    """Sotuvchi va xaridor bitta ro'yxatda.
+
+    "Kuchli leadlar" va "yuborishga tayyor" ikkala tomonni ham qamraydi --
+    ularni faqat sotuvchilar sahifasiga olib borish son bilan ro'yxatni
+    bir-biriga to'g'ri kelmaydigan qilib qo'yardi.
+    """
+    args = dict(request.query_params)
+    return tpl.TemplateResponse(request, "leads.html", {
+        "rows": _rows(None, args), "side": None,
+        "counts": _status_counts((args.get("side") or "").upper() or None),
+        "args": args, "statuses": STATUSES, "status_labels": STATUS_LABELS,
+        "ranges": RANGES, "groups": _group_names(), "page": "leads",
     })
 
 
