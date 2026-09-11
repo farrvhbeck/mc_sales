@@ -132,7 +132,17 @@ def sweep_search(ctx: BrowserContext, query: str, cfg: dict, since_ts: float) ->
 
 
 def run(ctx: BrowserContext, cfg: dict, since_ts: float) -> dict:
-    """Yoqilgan bo'lsa har bir so'rov bo'yicha qidiradi."""
+    """Yoqilgan bo'lsa har bir so'rov bo'yicha qidiradi.
+
+    Qidiruv natijasi vaqt bo'yicha emas, mos kelish bo'yicha tartiblangan:
+    feed'ning 7 kunlik oynasi bu yerda natijalarning ~90% ini tashlab
+    yuboradi. Shuning uchun `search.backfill_days` alohida.
+    """
+    import time as _t
+
+    days = (cfg.get("search") or {}).get("backfill_days")
+    if days:
+        since_ts = _t.time() - days * 86400
     out: dict = {}
     for q in queries(cfg):
         try:

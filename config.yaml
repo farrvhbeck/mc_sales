@@ -54,6 +54,11 @@ search:
   # Dashboard'dagi tugma bu qiymatdan ustun turadi.
   enabled: false
   max_scrolls_per_query: 12
+  # Guruh feed'i xronologik, qidiruv esa mos kelish bo'yicha tartiblangan:
+  # natijalarning katta qismi eski. 7 kunlik oyna bu yerda deyarli hammasini
+  # tashlab yuboradi, shuning uchun oyna kengroq. Eski postning balli
+  # freshness orqali o'zi tushadi -- ro'yxat tepasini egallamaydi.
+  backfill_days: 21
   queries:
     - "mc authority for sale"
     - "selling my mc authority"

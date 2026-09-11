@@ -169,7 +169,8 @@ def collect(
 
 
 @app.command("ingest-raw")
-def ingest_raw(group: str = typer.Option(None, help="Faqat shu guruh")):
+def ingest_raw(group: str = typer.Option(None, help="Faqat shu guruh"),
+               since_days: int = typer.Option(None, help="Necha kunlik tarix")):
     """Saqlangan xom JSON'ni qayta o'qib bazaga yozadi — FB'ga bormasdan.
 
     Ekstraktor tuzatilganda yoki yaxshilanganda ishlatiladi: hamma narsa
@@ -180,20 +181,27 @@ def ingest_raw(group: str = typer.Option(None, help="Faqat shu guruh")):
     from . import normalize, runs
 
     db.init()
-    files = sorted(db.RAW_DIR.glob("*/feed-*.json"))
+    # Feed ham, keng qidiruv ham -- ikkalasi bir xil shaklda saqlanadi
+    files = sorted(list(db.RAW_DIR.glob("*/feed-*.json"))
+                   + list(db.RAW_DIR.glob("*/search-*.json")))
     if group:
         files = [f for f in files if f"-{group}-" in f.name]
     if not files:
         typer.echo("Xom fayl topilmadi.")
         raise typer.Exit(1)
 
-    stats = {"files": len(files), "seen": 0, "new": 0, "skipped_short": 0}
+    stats = {"files": len(files), "seen": 0, "new": 0, "skipped_short": 0, "too_old": 0}
     cfg = db.load_config()
     min_chars = cfg["collect"].get("min_text_chars", 25)
+    # Guruh feed'i xronologik, qidiruv esa mos kelish bo'yicha tartiblangan --
+    # shuning uchun qidiruv natijasi uchun oyna kengroq.
+    days = since_days or cfg["collect"]["backfill_days"]
+    search_days = (cfg.get("search") or {}).get("backfill_days", days)
 
     with runs.track("manual") as r, r.step("collect") as st:
         for path in files:
             gid = path.name.split("-")[1]
+            cutoff = time.time() - (search_days if gid == "search" else days) * 86400
             try:
                 payloads = json.loads(path.read_text())
             except (OSError, json.JSONDecodeError) as e:
@@ -209,6 +217,9 @@ def ingest_raw(group: str = typer.Option(None, help="Faqat shu guruh")):
             with db.connect() as conn:
                 for p in found.values():
                     stats["seen"] += 1
+                    if p["created_at"] is not None and p["created_at"] < cutoff:
+                        stats["too_old"] += 1
+                        continue
                     if len((p.get("text") or "").strip()) < min_chars and not p.get("media"):
                         stats["skipped_short"] += 1
                         continue
@@ -295,9 +306,11 @@ def discover(
         db.set_setting("broad_search", True)
         typer.echo("Keng qidiruv doimiy yoqildi (har siklda ishlaydi).")
 
-    days = since_days or cfg["collect"]["backfill_days"]
+    days = (since_days or (cfg.get("search") or {}).get("backfill_days")
+            or cfg["collect"]["backfill_days"])
     since_ts = time.time() - days * 86400
     queries = [query] if query else D.queries(cfg)
+    typer.echo(f"{len(queries)} so'rov, {days} kunlik oyna")
 
     try:
         with runs.track("manual") as r, r.step("collect") as st:
